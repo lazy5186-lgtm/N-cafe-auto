@@ -1,0 +1,46 @@
+{
+  "name": "n-cafe-auto",
+  "version": "1.0.0",
+  "description": "네이버 카페 자동 등록 Electron 앱",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "chcp 65001 >nul && electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "puppeteer-core": "^22.6.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.0"
+  },
+  "build": {
+    "extends": null,
+    "appId": "com.ncafeauto.app",
+    "productName": "N Cafe Auto",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "data/**/*",
+      "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "data",
+        "to": "data",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico",
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+data/cookies/
+data/logs/
+data/accounts.json
+data/delete-schedule.json
+data/crawl-cache/
+dist/
+*.log
