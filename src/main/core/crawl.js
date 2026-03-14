@@ -1,3 +1,4 @@
+const store = require('../data/store');
 const { delay } = require('./browser-manager');
 
 function deduplicateBoards(boards) {
@@ -176,51 +177,204 @@ async function extractNumericId(page, cafeName) {
   }
 }
 
+/**
+ * SideMenuList API로 게시판 목록 가져오기 (브라우저 내 fetch)
+ */
+async function fetchBoardsAPI(page, cafeId) {
+  try {
+    const result = await page.evaluate(async (id) => {
+      try {
+        const res = await fetch(`https://apis.naver.com/cafe-web/cafe2/SideMenuList?cafeId=${id}`, {
+          method: 'GET',
+          headers: {
+            'accept': 'application/json, text/plain, */*',
+          },
+          credentials: 'include',
+        });
+
+        if (!res.ok) return { error: `HTTP ${res.status}` };
+
+        const json = await res.json();
+
+        // 응답 구조: message.result.menus[]
+        let menus = null;
+        if (json.message && json.message.result) {
+          menus = json.message.result.menus;
+        }
+        if (!menus && json.result) {
+          menus = json.result.menus;
+        }
+        if (!menus && json.menus) {
+          menus = json.menus;
+        }
+
+        if (!Array.isArray(menus)) {
+          return { error: 'menus not found', sample: JSON.stringify(json).substring(0, 500) };
+        }
+
+        // 게시판만 필터 (menuType이 B=게시판, L=링크게시판 등)
+        const boards = menus
+          .filter(m => m.menuId && m.menuName)
+          .map(m => ({
+            menuId: String(m.menuId),
+            menuName: m.menuName.trim(),
+            menuType: m.menuType || '',
+            boardType: m.boardType || '',
+          }));
+
+        return { boards };
+      } catch (e) {
+        return { error: e.message };
+      }
+    }, cafeId);
+
+    if (result.error) {
+      console.log('SideMenuList API 오류:', result.error);
+      if (result.sample) console.log('응답 샘플:', result.sample);
+      return [];
+    }
+
+    console.log(`API로 게시판 ${result.boards.length}개 발견`);
+    return result.boards;
+  } catch (e) {
+    console.log('fetchBoardsAPI 예외:', e.message);
+    return [];
+  }
+}
+
 async function crawlBoards(page, cafeId, cafeName) {
-  // cafeName(슬러그)이 있으면 숫자 ID를 자동 추출
   let numericId = cafeId;
 
-  if (cafeName && !/^\d+$/.test(cafeName)) {
-    const extracted = await extractNumericId(page, cafeName);
-    if (extracted) {
-      numericId = extracted;
+  // 숫자 ID가 아닌 경우만 추출 시도
+  if (!/^\d+$/.test(numericId) && cafeName) {
+    if (/^\d+$/.test(cafeName)) {
+      numericId = cafeName;
+    } else {
+      const extracted = await extractNumericId(page, cafeName);
+      if (extracted) numericId = extracted;
     }
   }
 
-  // cafeId가 슬러그인 경우도 처리
-  if (!/^\d+$/.test(numericId) && cafeName) {
-    const extracted = await extractNumericId(page, cafeName);
-    if (extracted) numericId = extracted;
+  // API 호출 전 네이버 도메인 진입 (쿠키/CORS 필요)
+  const currentUrl = page.url();
+  if (!currentUrl.includes('naver.com')) {
+    await page.goto('https://cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await delay(1000);
   }
 
-  let boardList = await tryNewSPA(page, numericId);
+  // 1순위: API 방식 (빠름)
+  let boardList = await fetchBoardsAPI(page, numericId);
+
+  if (boardList.length > 0) {
+    return { boardList, cafeName: cafeName, cafeId: numericId };
+  }
+
+  // 2순위: DOM 기반 fallback (느림)
+  console.log('API 실패, DOM 크롤링 시도...');
+  boardList = await tryNewSPA(page, numericId);
 
   if (boardList.length === 0) {
     boardList = await tryOldFrames(page, numericId);
   }
 
-  const dropdownBoards = await tryWritePageDropdown(page, numericId);
-
-  if (boardList.length > 0 && dropdownBoards.length > 0) {
-    for (const board of boardList) {
-      const match = dropdownBoards.find(d =>
-        d.menuName.replace(/\s+/g, '') === board.menuName.replace(/\s+/g, '')
-      );
-      board.dropdownIndex = match ? match.dropdownIndex : -1;
+  if (boardList.length === 0) {
+    const dropdownBoards = await tryWritePageDropdown(page, numericId);
+    if (dropdownBoards.length > 0) {
+      boardList = dropdownBoards.map(d => ({
+        menuId: null,
+        menuName: d.menuName,
+        dropdownIndex: d.dropdownIndex,
+      }));
     }
   }
 
-  if (boardList.length === 0 && dropdownBoards.length > 0) {
-    boardList = dropdownBoards.map(d => ({
-      menuId: null,
-      menuName: d.menuName,
-      dropdownIndex: d.dropdownIndex,
-    }));
-  }
-
   const extractedName = await extractCafeName(page, numericId);
-
   return { boardList, cafeName: extractedName || cafeName, cafeId: numericId };
 }
 
-module.exports = { crawlBoards, extractNumericId };
+/**
+ * 계정의 쿠키를 이용해 가입한 카페 목록을 가져옴
+ * Puppeteer 브라우저 내에서 fetch()로 호출 (실제 브라우저 요청과 동일)
+ */
+async function fetchJoinedCafes(accountId) {
+  const cookies = store.loadCookies(accountId);
+  if (!cookies || cookies.length === 0) {
+    throw new Error('저장된 쿠키가 없습니다. 먼저 로그인 테스트를 실행하세요.');
+  }
+
+  const browserManager = require('./browser-manager');
+  let browser = null;
+
+  try {
+    browser = await browserManager.launchBrowser();
+    const page = await browserManager.createPage(browser);
+    await page.setCookie(...cookies);
+
+    // 네이버 카페 모바일 페이지로 이동 (쿠키 활성화)
+    await page.goto('https://m.cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await delay(1000);
+
+    // 브라우저 내에서 fetch API 호출
+    const result = await page.evaluate(async () => {
+      try {
+        const res = await fetch('https://apis.naver.com/cafe-home-web/cafe-home/v1/cafes/join?perPage=300', {
+          method: 'GET',
+          headers: {
+            'accept': 'application/json, text/plain, */*',
+            'x-cafe-product': 'mweb',
+          },
+          credentials: 'include',
+        });
+
+        if (!res.ok) return { error: `HTTP ${res.status}` };
+
+        const json = await res.json();
+
+        // 응답 구조 탐색
+        let cafeList = null;
+        if (json.message && json.message.result) {
+          cafeList = json.message.result.cafeList || json.message.result.cafes;
+        }
+        if (!cafeList && json.result) {
+          cafeList = json.result.cafeList || json.result.cafes;
+        }
+        if (!cafeList && json.data) {
+          cafeList = json.data.cafeList || json.data.cafes || json.data;
+        }
+        if (!cafeList && Array.isArray(json)) {
+          cafeList = json;
+        }
+
+        if (!Array.isArray(cafeList)) {
+          return { error: '카페 목록을 찾을 수 없습니다', keys: Object.keys(json).join(','), sample: JSON.stringify(json).substring(0, 300) };
+        }
+
+        return {
+          cafes: cafeList.map(cafe => ({
+            cafeId: String(cafe.cafeId || cafe.id || ''),
+            cafeName: cafe.cafeUrl || cafe.url || cafe.cafeSlug || cafe.cafeUri || '',
+            cafeTitle: cafe.cafeName || cafe.name || cafe.title || cafe.cafeTitle || '',
+          })).filter(c => c.cafeId),
+        };
+      } catch (e) {
+        return { error: e.message };
+      }
+    });
+
+    await browser.close();
+
+    if (result.error) {
+      console.error('카페 목록 오류:', result.error);
+      if (result.sample) console.log('응답 샘플:', result.sample);
+      throw new Error(result.error);
+    }
+
+    console.log(`가입 카페 ${result.cafes.length}개 발견 (${accountId})`);
+    return result.cafes;
+  } catch (e) {
+    if (browser) await browser.close().catch(() => {});
+    throw e;
+  }
+}
+
+module.exports = { crawlBoards, extractNumericId, fetchJoinedCafes };

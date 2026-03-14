@@ -186,50 +186,75 @@ async function changeNickname(page, browser, cafeId, newNickname) {
       return { success: false, error: '별명 입력 필드를 찾을 수 없습니다' };
     }
 
-    // 6. 기존 별명 삭제 후 새 별명 입력
-    const deleteBtn = await popupPage.$('.profile_form .btn_delete');
-    if (deleteBtn) {
-      await deleteBtn.click();
-      await delay(500);
-    } else {
+    // 6. 별명 입력 + 중복 시 재시도
+    const isRandom = newNickname === 'random';
+    const nickGen = isRandom ? require('./nickname-generator') : null;
+    const maxAttempts = isRandom ? 5 : 1;
+    let finalNickname = isRandom ? nickGen.generateNickname() : newNickname;
+
+    const clearAndType = async (nick) => {
+      const deleteBtn = await popupPage.$('.profile_form .btn_delete');
+      if (deleteBtn) {
+        await deleteBtn.click();
+        await delay(500);
+      } else {
+        await textarea.click();
+        await popupPage.keyboard.down('Control');
+        await popupPage.keyboard.press('a');
+        await popupPage.keyboard.up('Control');
+        await delay(200);
+        await popupPage.keyboard.press('Backspace');
+        await delay(300);
+      }
       await textarea.click();
-      await popupPage.keyboard.down('Control');
-      await popupPage.keyboard.press('a');
-      await popupPage.keyboard.up('Control');
       await delay(200);
-      await popupPage.keyboard.press('Backspace');
-      await delay(300);
-    }
+      await textarea.type(nick, { delay: 80 });
+      await delay(1500);
+    };
 
-    await textarea.click();
-    await delay(200);
-    await textarea.type(newNickname, { delay: 80 });
-    await delay(1500);
-
-    // 7. "사용할 수 있는 별명입니다." 메시지 확인
     const checkMessage = async () => {
       return await popupPage.evaluate(() => {
         const msgEl = document.querySelector('.profile_form .msg_area .msg');
-        if (msgEl) {
-          return msgEl.textContent.trim().includes('사용할 수 있는 별명');
-        }
-        return false;
+        if (!msgEl) return 'none';
+        const text = msgEl.textContent.trim();
+        if (text.includes('사용할 수 있는 별명')) return 'available';
+        if (text.includes('이미 사용 중')) return 'duplicate';
+        return text;
       });
     };
 
-    let isAvailable = await checkMessage();
-    if (!isAvailable) {
-      await delay(2000);
-      isAvailable = await checkMessage();
+    let isAvailable = false;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      await clearAndType(finalNickname);
+      console.log(`닉네임 시도 (${attempt}/${maxAttempts}): "${finalNickname}"`);
+
+      let result = await checkMessage();
+      if (result === 'none') {
+        await delay(2000);
+        result = await checkMessage();
+      }
+
+      if (result === 'available') {
+        isAvailable = true;
+        break;
+      }
+
+      if (result === 'duplicate' && isRandom && attempt < maxAttempts) {
+        console.log(`"${finalNickname}" 중복, 재시도...`);
+        finalNickname = nickGen.generateNicknameWithNumber();
+        continue;
+      }
+
+      // 사용 불가
+      if (attempt === maxAttempts) {
+        await popupPage.close().catch(() => {});
+        return { success: false, error: `별명 사용 불가: ${result}` };
+      }
     }
 
     if (!isAvailable) {
-      const errorMsg = await popupPage.evaluate(() => {
-        const msgEl = document.querySelector('.profile_form .msg_area .msg');
-        return msgEl ? msgEl.textContent.trim() : '별명 유효성 확인 실패';
-      });
       await popupPage.close().catch(() => {});
-      return { success: false, error: errorMsg };
+      return { success: false, error: '사용 가능한 별명을 찾지 못했습니다' };
     }
 
     // 8. 확인 버튼 클릭
@@ -251,7 +276,7 @@ async function changeNickname(page, browser, cafeId, newNickname) {
 
     await delay(3000);
     await popupPage.close().catch(() => {});
-    return { success: true, nickname: newNickname };
+    return { success: true, nickname: finalNickname };
   } catch (e) {
     return { success: false, error: e.message };
   }

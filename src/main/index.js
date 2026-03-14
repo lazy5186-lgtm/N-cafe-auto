@@ -1,7 +1,9 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, dialog } = require('electron');
 const path = require('path');
+const { autoUpdater } = require('electron-updater');
 const { registerHandlers, cleanup } = require('./ipc-handlers');
 const store = require('./data/store');
+const nicknameGenerator = require('./core/nickname-generator');
 
 let mainWindow = null;
 
@@ -25,10 +27,48 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
+// --- 자동 업데이트 ---
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: '업데이트 발견',
+      message: `새 버전 v${info.version}이 있습니다. 다운로드하시겠습니까?`,
+      buttons: ['다운로드', '나중에'],
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.downloadUpdate();
+    });
+  });
+
+  autoUpdater.on('update-downloaded', () => {
+    dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: '업데이트 준비 완료',
+      message: '업데이트가 다운로드되었습니다. 앱을 재시작하여 설치하시겠습니까?',
+      buttons: ['재시작', '나중에'],
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.quitAndInstall();
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('업데이트 오류:', err.message);
+  });
+
+  autoUpdater.checkForUpdates().catch(() => {});
+}
+
 app.whenReady().then(() => {
-  // 데이터 마이그레이션 (기존 구조 → 새 구조)
   store.migrateData();
+  store.migrateDataV2();
+  // 커스텀 닉네임 단어 로드
+  const nickWords = store.loadNicknameWords();
+  nicknameGenerator.setCustomWords(nickWords.adjectives, nickWords.nouns);
   createWindow();
+  setupAutoUpdater();
 });
 
 app.on('window-all-closed', () => {

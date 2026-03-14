@@ -170,7 +170,7 @@ async function selectBoard(page, menuId, boardName) {
   }
 }
 
-async function writePost(page, cafeId, menuId, title, bodySegments, boardName) {
+async function writePost(page, cafeId, menuId, title, bodySegments, boardName, visibility) {
   await navigateToWritePage(page, cafeId, menuId);
 
   // === 1. 에디터 포커스 ===
@@ -231,7 +231,27 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName) {
   await selectBoard(page, menuId, boardName);
   await delay(2000);
 
-  // === 5. 등록 버튼 클릭 ===
+  // === 5. 공개 설정 ===
+  try {
+    const openSetBtn = await page.$('.btn_open_set');
+    if (openSetBtn) {
+      await openSetBtn.click();
+      await delay(1000);
+      const radioId = (visibility === 'member') ? 'input#member[name="public"]' : 'input#all[name="public"]';
+      const radio = await page.$(radioId);
+      if (radio) {
+        await radio.click();
+        console.log(`공개 설정: ${visibility === 'member' ? '멤버공개' : '전체공개'} 선택`);
+        await delay(500);
+      }
+      await openSetBtn.click().catch(() => {});
+      await delay(500);
+    }
+  } catch (e) {
+    console.log('공개 설정 변경 실패 (무시):', e.message);
+  }
+
+  // === 6. 등록 버튼 클릭 ===
   console.log('등록 버튼 클릭...');
   await page.waitForSelector('.BaseButton--skinGreen', { timeout: 10000 });
   const writeButton = await page.$('.BaseButton--skinGreen');

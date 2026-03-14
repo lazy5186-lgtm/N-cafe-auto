@@ -51,10 +51,22 @@ async function changeIP(interfaceName, logFn) {
   const oldIp = await ipChecker.getPublicIP();
   log(`현재 IP: ${oldIp || '확인 불가'}`);
 
+  // 관리자 권한 확인 (netsh 테스트)
+  try {
+    await execCommand('net session');
+  } catch (e) {
+    throw new Error('관리자 권한이 필요합니다. 앱을 관리자 권한으로 실행하세요.');
+  }
+
   log(`인터페이스 "${iface}" 비활성화 중...`);
   try {
     await execCommand(`netsh interface set interface "${iface}" disabled`);
   } catch (e) {
+    log(`비활성화 실패: ${e.message}`);
+    // 비활성화 실패 시 안전하게 활성화 시도 후 에러
+    try {
+      await execCommand(`netsh interface set interface "${iface}" enabled`);
+    } catch (_) { /* ignore */ }
     throw new Error(`인터페이스 비활성화 실패: ${e.message}. 관리자 권한으로 앱을 실행하세요.`);
   }
 
@@ -65,7 +77,15 @@ async function changeIP(interfaceName, logFn) {
   try {
     await execCommand(`netsh interface set interface "${iface}" enabled`);
   } catch (e) {
-    throw new Error(`인터페이스 활성화 실패: ${e.message}`);
+    // 활성화 실패 시 재시도
+    log(`활성화 실패, 3초 후 재시도...`);
+    await delay(3000);
+    try {
+      await execCommand(`netsh interface set interface "${iface}" enabled`);
+      log('재시도 활성화 성공');
+    } catch (e2) {
+      throw new Error(`인터페이스 활성화 실패 (재시도 포함): ${e2.message}. 수동으로 "${iface}"를 활성화하세요.`);
+    }
   }
 
   log('11초 대기 (IP 할당 대기)...');

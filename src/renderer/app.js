@@ -1,170 +1,917 @@
-// N Cafe Auto — Sidebar + Subtab Controller
+// N Cafe Auto — Global Tab Controller
 
+// Toast 알림 (alert 대체 — 포커스 소실 방지)
+function showToast(message, duration) {
+  duration = duration || 2000;
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'toast-msg';
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('toast-fade');
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
+}
+
+// === State ===
 let accounts = [];
-let activeAccountId = null;
+let settings = {};
+let manuscripts = [];
+let presets = [];
+let selectedMsIndex = -1;
+let nicknameWordsData = { adjectives: [], nouns: [], defaultAdjectives: [], defaultNouns: [] };
 let _removeLogListener = null;
 let _removeProgressListener = null;
 let _removeCompleteListener = null;
+let _removeLikeLogListener = null;
+let _removeLikeProgressListener = null;
+let _removeLikeCompleteListener = null;
+let _removeVcLogListener = null;
+let _removeVcProgressListener = null;
+let _removeVcCompleteListener = null;
 
-// --- 전체 실행 상태 ---
-let globalRunning = false;
-let globalQueue = [];
-let globalCurrentIdx = 0;
-
-// --- 사이드바 계정 버튼 ---
-
-function createSidebarButton(account) {
-  const btn = document.createElement('button');
-  btn.className = 'sidebar-account-btn';
-  btn.dataset.accountId = account.id;
-  btn.innerHTML = `
-    <span class="sidebar-dot"></span>
-    <span class="sidebar-label">${account.id}</span>
-  `;
-  btn.addEventListener('click', () => switchTab(account.id));
-  return btn;
-}
-
-function switchTab(accountId) {
-  activeAccountId = accountId;
-
-  // 사이드바 버튼 활성화
-  document.querySelectorAll('#sidebar-accounts .sidebar-account-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.accountId === accountId);
-  });
-
-  // 패널 활성화
-  document.querySelectorAll('#tab-content .tab-panel').forEach(p => {
-    p.classList.toggle('active', p.dataset.accountId === accountId);
-  });
-
-  // empty state 숨김
-  const empty = document.getElementById('empty-state');
-  if (empty) empty.style.display = 'none';
-
-  // subtab-nav 표시
-  const subtabNav = document.getElementById('subtab-nav');
-  if (subtabNav) subtabNav.style.display = 'flex';
-
-  // 서브탭 복원
-  const panel = document.querySelector(`#tab-panel-${CSS.escape(accountId)}`);
-  if (panel) {
-    const subtab = panel._activeSubtab || 'settings';
-    switchSubtab(subtab);
-    AccountTab.loadResultsList(panel, accountId);
-  }
-}
-
-// --- 서브탭 전환 ---
-
-function switchSubtab(subtabName) {
-  const panel = document.querySelector(`#tab-panel-${CSS.escape(activeAccountId)}`);
-  if (!panel) return;
-
-  // 서브탭 네비 버튼 활성화
-  document.querySelectorAll('#subtab-nav .subtab-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.subtab === subtabName);
-  });
-
-  // 서브탭 콘텐츠 전환
-  panel.querySelectorAll('.subtab-content').forEach(content => {
-    content.classList.toggle('active', content.dataset.subtab === subtabName);
-  });
-
-  // 패널에 현재 서브탭 저장
-  panel._activeSubtab = subtabName;
-}
-
-function setupSubtabNav() {
-  document.querySelectorAll('#subtab-nav .subtab-btn').forEach(btn => {
+// === Tab Switching ===
+function setupTabs() {
+  document.querySelectorAll('.tab-nav .tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      switchSubtab(btn.dataset.subtab);
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.tab-nav .tab-btn').forEach(b =>
+        b.classList.toggle('active', b === btn)
+      );
+      document.querySelectorAll('.tab-content > .tab-panel').forEach(p =>
+        p.classList.toggle('active', p.dataset.tab === tab)
+      );
     });
   });
 }
 
-// --- 탭 추가/삭제 ---
+// =============================================
+// 설정 탭
+// =============================================
 
-function addAccountTab(account) {
-  const sidebarAccounts = document.getElementById('sidebar-accounts');
-  const tabContent = document.getElementById('tab-content');
+async function renderAccountsTable() {
+  const tbody = document.getElementById('accounts-tbody');
+  tbody.innerHTML = '';
 
-  // 사이드바 버튼
-  const btn = createSidebarButton(account);
-  sidebarAccounts.appendChild(btn);
+  for (const acc of accounts) {
+    const hasCookies = await window.api.hasCookies(acc.id);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${acc.id}</td>
+      <td class="pw-display">\u2022\u2022\u2022\u2022\u2022\u2022</td>
+      <td>
+        <button class="btn btn-sm btn-primary btn-login-test" data-id="${acc.id}">테스트</button>
+        <span class="login-status" data-id="${acc.id}" style="color:${hasCookies ? '#66bb6a' : ''}">${hasCookies ? '성공' : ''}</span>
+      </td>
+      <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
 
-  // 패널
-  const panel = AccountTab.createPanel(account, accounts);
-  tabContent.appendChild(panel);
+  tbody.querySelectorAll('.btn-login-test').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const statusEl = tbody.querySelector(`.login-status[data-id="${id}"]`);
+      statusEl.textContent = '테스트 중...';
+      statusEl.style.color = '#ffa726';
+      const result = await window.api.loginTest(id);
+      if (result.success) {
+        statusEl.textContent = '성공';
+        statusEl.style.color = '#66bb6a';
+      } else {
+        statusEl.textContent = `실패: ${result.error || ''}`;
+        statusEl.style.color = '#ef5350';
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-delete-account').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      if (!confirm(`"${id}" 계정을 삭제하시겠습니까?`)) return;
+      await window.api.deleteAccount(id);
+      accounts = accounts.filter(a => a.id !== id);
+      renderAccountsTable();
+    });
+  });
 }
 
-function removeAccountTab(accountId) {
-  // 사이드바 버튼 제거
-  const btn = document.querySelector(`#sidebar-accounts .sidebar-account-btn[data-account-id="${CSS.escape(accountId)}"]`);
-  if (btn) btn.remove();
+function setupAddAccount() {
+  document.getElementById('btn-add-account').addEventListener('click', async () => {
+    const idInput = document.getElementById('new-account-id');
+    const pwInput = document.getElementById('new-account-pw');
+    const id = idInput.value.trim();
+    const pw = pwInput.value.trim();
+    if (!id || !pw) return showToast('아이디와 비밀번호를 입력하세요.');
+    if (accounts.find(a => a.id === id)) return showToast('이미 등록된 아이디입니다.');
 
-  // 패널 제거
-  const panel = document.querySelector(`#tab-panel-${CSS.escape(accountId)}`);
-  if (panel) panel.remove();
+    const result = await window.api.addAccount({ id, password: pw });
+    if (!result.success) return showToast('계정 추가 실패');
 
-  // 계정 목록에서 제거
-  accounts = accounts.filter(a => a.id !== accountId);
+    accounts.push({ id, password: pw, nickname: '' });
+    idInput.value = '';
+    pwInput.value = '';
+    renderAccountsTable();
+  });
 
-  // 다른 탭으로 전환
-  if (accounts.length > 0) {
-    switchTab(accounts[0].id);
+  // Enter 키
+  document.getElementById('new-account-pw').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btn-add-account').click();
+  });
+
+  // 일괄 추가 (엑셀 복사 붙여넣기)
+  document.getElementById('btn-bulk-add').addEventListener('click', async () => {
+    const textarea = document.getElementById('bulk-account-input');
+    const statusEl = document.getElementById('bulk-add-status');
+    const raw = textarea.value.trim();
+    if (!raw) return showToast('붙여넣기할 내용이 없습니다.');
+
+    const lines = raw.split('\n').filter(l => l.trim());
+    let added = 0;
+    let skipped = 0;
+
+    for (const line of lines) {
+      // 탭, 쉼표, 공백 구분 지원
+      const parts = line.split(/[\t,]+/).map(s => s.trim());
+      if (parts.length < 2) { skipped++; continue; }
+
+      const id = parts[0];
+      const pw = parts[1];
+      if (!id || !pw) { skipped++; continue; }
+      if (accounts.find(a => a.id === id)) { skipped++; continue; }
+
+      const result = await window.api.addAccount({ id, password: pw });
+      if (result.success) {
+        accounts.push({ id, password: pw, nickname: '' });
+        added++;
+      } else {
+        skipped++;
+      }
+    }
+
+    textarea.value = '';
+    renderAccountsTable();
+    statusEl.textContent = `${added}개 추가, ${skipped}개 스킵`;
+    setTimeout(() => { statusEl.textContent = ''; }, 5000);
+  });
+
+  // 전체 로그인 테스트
+  document.getElementById('btn-login-all').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-login-all');
+    btn.disabled = true;
+    btn.textContent = '테스트 중...';
+
+    let success = 0;
+    let fail = 0;
+    for (const acc of accounts) {
+      const statusEl = document.querySelector(`.login-status[data-id="${acc.id}"]`);
+      if (statusEl) {
+        statusEl.textContent = '테스트 중...';
+        statusEl.style.color = '#ffa726';
+      }
+      const result = await window.api.loginTest(acc.id);
+      if (statusEl) {
+        if (result.success) {
+          statusEl.textContent = '성공';
+          statusEl.style.color = '#66bb6a';
+          success++;
+        } else {
+          statusEl.textContent = `실패: ${result.error || ''}`;
+          statusEl.style.color = '#ef5350';
+          fail++;
+        }
+      }
+    }
+
+    btn.disabled = false;
+    btn.textContent = '전체 로그인 테스트';
+    showToast(`로그인 테스트 완료: 성공 ${success}, 실패 ${fail}`);
+  });
+}
+
+
+function setupSettingsToggles() {
+  const ipToggle = document.getElementById('toggle-ip-change');
+  const ipSettings = document.querySelector('.ip-settings');
+
+  ipToggle.checked = settings.ipChange && settings.ipChange.enabled;
+  ipSettings.style.display = ipToggle.checked ? 'flex' : 'none';
+
+  if (settings.ipChange && settings.ipChange.interfaceName) {
+    document.getElementById('iface-input').value = settings.ipChange.interfaceName;
+  }
+
+  ipToggle.addEventListener('change', () => {
+    ipSettings.style.display = ipToggle.checked ? 'flex' : 'none';
+  });
+
+  // IP 버튼
+  document.getElementById('btn-check-iface').addEventListener('click', async () => {
+    const ifaceName = document.getElementById('iface-input').value.trim();
+    const statusEl = document.getElementById('ip-status');
+    const result = await window.api.checkInterface(ifaceName || null);
+    if (result.exists) {
+      statusEl.textContent = `감지됨: ${result.name} (${result.ip || 'IP 없음'})`;
+      statusEl.style.color = '#66bb6a';
+      if (result.name) document.getElementById('iface-input').value = result.name;
+    } else {
+      statusEl.textContent = '인터페이스를 찾을 수 없습니다';
+      statusEl.style.color = '#ef5350';
+    }
+  });
+
+  document.getElementById('btn-test-ip').addEventListener('click', async () => {
+    const ifaceName = document.getElementById('iface-input').value.trim();
+    const statusEl = document.getElementById('ip-status');
+    statusEl.textContent = 'IP 변경 중...';
+    statusEl.style.color = '#ffa726';
+    const result = await window.api.changeIP(ifaceName || null);
+    if (result.success) {
+      statusEl.textContent = `새 IP: ${result.ip || '확인 불가'}`;
+      statusEl.style.color = '#66bb6a';
+    } else {
+      statusEl.textContent = `실패: ${result.error}`;
+      statusEl.style.color = '#ef5350';
+    }
+  });
+
+  // 설정 저장
+  document.getElementById('btn-save-settings').addEventListener('click', async () => {
+    settings = {
+      ipChange: {
+        enabled: ipToggle.checked,
+        interfaceName: document.getElementById('iface-input').value.trim(),
+      },
+    };
+    await window.api.saveSettings(settings);
+    showToast('설정이 저장되었습니다.');
+  });
+
+  // 닉네임 단어 관리
+  setupNicknameWords();
+}
+
+function updateWordCounts() {
+  const adjText = document.getElementById('nick-adjectives').value.trim();
+  const nounText = document.getElementById('nick-nouns').value.trim();
+  const adjCount = adjText ? adjText.split('\n').filter(l => l.trim()).length : 0;
+  const nounCount = nounText ? nounText.split('\n').filter(l => l.trim()).length : 0;
+  document.getElementById('adj-count').textContent = adjCount;
+  document.getElementById('noun-count').textContent = nounCount;
+}
+
+async function setupNicknameWords() {
+  nicknameWordsData = await window.api.loadNicknameWords();
+
+  const adjTextarea = document.getElementById('nick-adjectives');
+  const nounTextarea = document.getElementById('nick-nouns');
+
+  // 커스텀 단어가 있으면 커스텀, 없으면 기본값 표시
+  const adjList = nicknameWordsData.adjectives.length > 0 ? nicknameWordsData.adjectives : nicknameWordsData.defaultAdjectives;
+  const nounList = nicknameWordsData.nouns.length > 0 ? nicknameWordsData.nouns : nicknameWordsData.defaultNouns;
+
+  adjTextarea.value = adjList.join('\n');
+  nounTextarea.value = nounList.join('\n');
+  updateWordCounts();
+
+  adjTextarea.addEventListener('input', updateWordCounts);
+  nounTextarea.addEventListener('input', updateWordCounts);
+
+  // 저장
+  document.getElementById('btn-nick-words-save').addEventListener('click', async () => {
+    const adjectives = adjTextarea.value.split('\n').map(l => l.trim()).filter(Boolean);
+    const nouns = nounTextarea.value.split('\n').map(l => l.trim()).filter(Boolean);
+    await window.api.saveNicknameWords({ adjectives, nouns });
+    showToast(`닉네임 단어 저장됨 (형용사 ${adjectives.length}개, 명사 ${nouns.length}개)`);
+  });
+
+  // 기본값 복원
+  document.getElementById('btn-nick-reset').addEventListener('click', () => {
+    adjTextarea.value = nicknameWordsData.defaultAdjectives.join('\n');
+    nounTextarea.value = nicknameWordsData.defaultNouns.join('\n');
+    updateWordCounts();
+    showToast('기본 단어로 복원됨 (저장 버튼을 눌러야 적용됩니다)');
+  });
+}
+
+// =============================================
+// 원고 탭
+// =============================================
+
+function renderMsList() {
+  const list = document.getElementById('ms-list');
+  list.innerHTML = '';
+
+  manuscripts.forEach((ms, i) => {
+    const div = document.createElement('div');
+    div.className = 'ms-list-item' + (i === selectedMsIndex ? ' active' : '') + (!ms.enabled ? ' disabled' : '');
+    div.innerHTML = `
+      <div style="display:flex; align-items:center; gap:6px;">
+        <div style="flex:1; min-width:0;">
+          <div class="ms-item-title">${ms.post.title || '(제목 없음)'}</div>
+          <div class="ms-item-sub">${ms.accountId || '계정 미선택'} \u00B7 ${ms.boardName || '게시판 미선택'}</div>
+        </div>
+        <button class="btn-ms-remove" title="삭제" style="background:none; border:none; color:#ef5350; font-size:16px; cursor:pointer; padding:2px 6px; flex-shrink:0;">&minus;</button>
+      </div>
+    `;
+    div.querySelector('.btn-ms-remove').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      manuscripts.splice(i, 1);
+      if (selectedMsIndex === i) {
+        selectedMsIndex = -1;
+        document.getElementById('ms-editor').style.display = 'none';
+      } else if (selectedMsIndex > i) {
+        selectedMsIndex--;
+      }
+      await saveAllManuscripts();
+      renderMsList();
+    });
+    div.addEventListener('click', () => selectMs(i));
+    list.appendChild(div);
+  });
+}
+
+function selectMs(index) {
+  if (selectedMsIndex >= 0) collectMsData();
+  selectedMsIndex = index;
+  renderMsList();
+  renderMsEditor();
+}
+
+function renderMsEditor() {
+  const editor = document.getElementById('ms-editor');
+  if (selectedMsIndex < 0) { editor.style.display = 'none'; return; }
+  editor.style.display = 'block';
+
+  const ms = manuscripts[selectedMsIndex];
+
+  document.getElementById('ms-enabled').checked = ms.enabled;
+
+  // 게시 계정
+  const msAccount = document.getElementById('ms-account');
+  msAccount.innerHTML = '<option value="">계정 선택...</option>';
+  accounts.forEach(a => {
+    msAccount.innerHTML += `<option value="${a.id}" ${a.id === ms.accountId ? 'selected' : ''}>${a.id}</option>`;
+  });
+  // 게시 계정도 색상 시스템에 등록
+  if (ms.accountId) {
+    getCommentAccountColor(ms.accountId);
+  }
+  applySelectColor(msAccount);
+
+  // 카페
+  document.getElementById('ms-cafe-name').value = ms.cafeName || '';
+  document.getElementById('ms-cafe-id').value = ms.cafeId || '';
+  renderCafeSelect(ms);
+
+  // 게시판
+  const boardSelect = document.getElementById('ms-board');
+  boardSelect.innerHTML = '<option value="">게시판 선택...</option>';
+  (ms.boards || []).forEach(b => {
+    boardSelect.innerHTML += `<option value="${b.menuId || ''}" ${b.menuId === ms.boardMenuId ? 'selected' : ''}>${b.menuName}</option>`;
+  });
+  if (ms.boardMenuId && !(ms.boards || []).find(b => b.menuId === ms.boardMenuId)) {
+    boardSelect.innerHTML += `<option value="${ms.boardMenuId}" selected>${ms.boardName || ms.boardMenuId}</option>`;
+  }
+
+  // 랜덤 닉네임
+  document.getElementById('ms-random-nickname').checked = ms.randomNickname || false;
+
+  // 공개 설정
+  const visibility = ms.visibility || 'public';
+  document.querySelector(`input[name="ms-visibility"][value="${visibility}"]`).checked = true;
+
+  // 제목
+  document.getElementById('ms-title').value = ms.post.title || '';
+
+  // 세그먼트
+  const segContainer = document.getElementById('ms-segments');
+  segContainer.innerHTML = '';
+  (ms.post.bodySegments || []).forEach(seg => {
+    if (seg.type === 'text') MsHelpers.renderTextSegment(segContainer, seg.content);
+    else if (seg.type === 'image') MsHelpers.renderImageSegment(segContainer, seg.filePath);
+  });
+
+  // 댓글
+  const cmtList = document.getElementById('ms-comments-list');
+  cmtList.innerHTML = '';
+  resetCommentColors();
+  (ms.comments || []).forEach(cmt => {
+    MsHelpers.renderCommentItem(cmtList, cmt, accounts);
+  });
+  // 모든 댓글 렌더링 후 드롭다운 옵션 색상 일괄 갱신
+  refreshAllCommentColors();
+}
+
+function collectMsData() {
+  if (selectedMsIndex < 0) return;
+  const ms = manuscripts[selectedMsIndex];
+
+  ms.enabled = document.getElementById('ms-enabled').checked;
+  ms.accountId = document.getElementById('ms-account').value;
+
+  // 카페 드롭다운에서 값 추출
+  const cafeSelectVal = document.getElementById('ms-cafe-select').value;
+  if (cafeSelectVal) {
+    const [selectedCafeName, selectedCafeId] = cafeSelectVal.split('||');
+    ms.cafeName = selectedCafeName || '';
+    ms.cafeId = selectedCafeId || '';
   } else {
-    activeAccountId = null;
-    const empty = document.getElementById('empty-state');
-    if (empty) empty.style.display = 'block';
-    // subtab-nav 숨김
-    const subtabNav = document.getElementById('subtab-nav');
-    if (subtabNav) subtabNav.style.display = 'none';
+    ms.cafeName = document.getElementById('ms-cafe-name').value.trim();
+    ms.cafeId = document.getElementById('ms-cafe-id').value.trim();
+  }
+
+  const boardSelect = document.getElementById('ms-board');
+  const selectedOpt = boardSelect.options[boardSelect.selectedIndex];
+  ms.boardMenuId = boardSelect.value;
+  ms.boardName = selectedOpt ? selectedOpt.textContent : '';
+
+  ms.randomNickname = document.getElementById('ms-random-nickname').checked;
+  ms.visibility = document.querySelector('input[name="ms-visibility"]:checked').value || 'public';
+  ms.post.title = document.getElementById('ms-title').value.trim();
+
+  // 세그먼트
+  ms.post.bodySegments = [];
+  document.querySelectorAll('#ms-segments .segment-item').forEach(item => {
+    const type = item.dataset.type;
+    if (type === 'text') {
+      const ta = item.querySelector('textarea');
+      ms.post.bodySegments.push({ type: 'text', content: ta ? ta.value : '' });
+    } else if (type === 'image') {
+      const pathSpan = item.querySelector('.seg-image-path');
+      ms.post.bodySegments.push({ type: 'image', filePath: pathSpan ? pathSpan.dataset.path || '' : '' });
+    }
+  });
+
+  // 댓글 (재귀)
+  const collectReplies = (containerEl) => {
+    const replies = [];
+    containerEl.querySelectorAll(':scope > .ms-reply-item').forEach(replyEl => {
+      const rAcct = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-account');
+      const rText = replyEl.querySelector(':scope > .ms-reply-text');
+      const rImg = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-image-path');
+      const subList = replyEl.querySelector(':scope > .ms-reply-sub-list');
+      replies.push({
+        accountId: rAcct ? rAcct.value : '',
+        text: rText ? rText.value : '',
+        imagePath: rImg ? rImg.dataset.path || null : null,
+        replies: subList ? collectReplies(subList) : [],
+      });
+    });
+    return replies;
+  };
+
+  ms.comments = [];
+  document.querySelectorAll('#ms-comments-list > .ms-comment-item').forEach(item => {
+    const accountSelect = item.querySelector('.ms-cmt-account');
+    const textInput = item.querySelector('.ms-cmt-text');
+    const imgSpan = item.querySelector('.ms-cmt-image-path');
+    const replyList = item.querySelector('.ms-reply-list');
+    ms.comments.push({
+      accountId: accountSelect ? accountSelect.value : '',
+      text: textInput ? textInput.value : '',
+      imagePath: imgSpan ? imgSpan.dataset.path || null : null,
+      replies: replyList ? collectReplies(replyList) : [],
+    });
+  });
+}
+
+// 계정별 가입 카페 캐시
+const _cafeCache = {};
+const _boardCache = {};
+
+function applyBoardList(boards) {
+  if (selectedMsIndex >= 0) {
+    manuscripts[selectedMsIndex].boards = boards;
+  }
+  const boardSelect = document.getElementById('ms-board');
+  const currentVal = boardSelect.value;
+  boardSelect.innerHTML = '<option value="">게시판 선택...</option>';
+  boards.forEach(b => {
+    const opt = document.createElement('option');
+    opt.value = b.menuId || '';
+    opt.textContent = b.menuName;
+    if (b.menuId === currentVal) opt.selected = true;
+    boardSelect.appendChild(opt);
+  });
+}
+
+async function fetchBoardsForCafe(cafeIdOrName, accountId) {
+  if (!cafeIdOrName || !accountId) return;
+  const statusEl = document.getElementById('ms-crawl-status');
+  statusEl.textContent = '게시판 불러오는 중...';
+
+  const result = await window.api.crawlBoards(cafeIdOrName, accountId);
+  if (result.success) {
+    const boards = result.boardList || [];
+    const cacheKey = `${accountId}||${cafeIdOrName}`;
+    _boardCache[cacheKey] = boards;
+
+    if (selectedMsIndex >= 0 && result.cafeId) {
+      manuscripts[selectedMsIndex].cafeId = result.cafeId;
+      document.getElementById('ms-cafe-id').value = result.cafeId;
+    }
+    statusEl.textContent = `${boards.length}개 게시판 발견`;
+    applyBoardList(boards);
+  } else {
+    statusEl.textContent = `실패: ${result.error}`;
   }
 }
 
-// --- 계정 추가 모달 ---
+function renderCafeSelect(ms) {
+  const select = document.getElementById('ms-cafe-select');
+  select.innerHTML = '';
 
-function setupAddAccountModal() {
-  const modal = document.getElementById('add-account-modal');
-  const btnAdd = document.getElementById('btn-add-tab');
-  const btnCancel = document.getElementById('modal-cancel');
-  const btnConfirm = document.getElementById('modal-confirm');
+  const defaultOpt = document.createElement('option');
+  defaultOpt.value = '';
+  defaultOpt.textContent = '카페 선택...';
+  select.appendChild(defaultOpt);
 
-  btnAdd.addEventListener('click', () => {
-    modal.style.display = 'flex';
-    document.getElementById('modal-account-id').value = '';
-    document.getElementById('modal-account-pw').value = '';
-    document.getElementById('modal-account-id').focus();
+  // 현재 드롭다운에서 선택된 계정 우선, 없으면 저장된 값
+  const currentAccount = document.getElementById('ms-account').value || ms.accountId || '';
+  const cachedCafes = _cafeCache[currentAccount] || [];
+
+  cachedCafes.forEach(cafe => {
+    const opt = document.createElement('option');
+    opt.value = `${cafe.cafeName}||${cafe.cafeId}`;
+    opt.textContent = `${cafe.cafeTitle} (${cafe.cafeName})`;
+    if (cafe.cafeName === ms.cafeName || cafe.cafeId === ms.cafeId) {
+      opt.selected = true;
+    }
+    select.appendChild(opt);
   });
 
-  btnCancel.addEventListener('click', () => {
-    modal.style.display = 'none';
+  // 현재 원고에 카페가 설정되어 있지만 캐시에 없으면 직접 추가
+  if (ms.cafeName && !cachedCafes.find(c => c.cafeName === ms.cafeName)) {
+    const opt = document.createElement('option');
+    opt.value = `${ms.cafeName}||${ms.cafeId || ''}`;
+    opt.textContent = ms.cafeName + (ms.cafeId ? ` (${ms.cafeId})` : '');
+    opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+
+async function fetchCafesForAccount(accountId) {
+  if (!accountId) { showToast('게시 계정을 먼저 선택하세요.'); return; }
+
+  const statusEl = document.getElementById('ms-crawl-status');
+  statusEl.textContent = '카페 목록 불러오는 중...';
+
+  const result = await window.api.fetchJoinedCafes(accountId);
+  if (result.success) {
+    _cafeCache[accountId] = result.cafes;
+    statusEl.textContent = `${result.cafes.length}개 카페 발견`;
+    if (selectedMsIndex >= 0) {
+      renderCafeSelect(manuscripts[selectedMsIndex]);
+    }
+  } else {
+    statusEl.textContent = `실패: ${result.error}`;
+  }
+}
+
+async function saveAllManuscripts() {
+  await window.api.saveManuscripts({ manuscripts, presets });
+}
+
+function setupManuscriptsTab() {
+  // 원고 추가
+  document.getElementById('btn-add-ms').addEventListener('click', () => {
+    const ms = {
+      id: 'ms-' + Date.now().toString(36),
+      accountId: '',
+      cafeId: '',
+      cafeName: '',
+      boards: [],
+      boardMenuId: '',
+      boardName: '',
+      post: { title: '새 게시글', bodySegments: [{ type: 'text', content: '' }] },
+      comments: [],
+      enabled: true,
+    };
+    manuscripts.push(ms);
+    renderMsList();
+    selectMs(manuscripts.length - 1);
   });
 
-  btnConfirm.addEventListener('click', async () => {
-    const id = document.getElementById('modal-account-id').value.trim();
-    const pw = document.getElementById('modal-account-pw').value.trim();
+  // 원고 저장
+  const saveMs = async () => {
+    if (selectedMsIndex < 0) return;
+    collectMsData();
+    await saveAllManuscripts();
+    renderMsList();
+    showToast('원고 저장됨');
+  };
+  document.getElementById('btn-save-ms').addEventListener('click', saveMs);
+  document.getElementById('btn-save-ms-top').addEventListener('click', saveMs);
 
-    if (!id || !pw) return alert('아이디와 비밀번호를 입력하세요.');
-    if (accounts.find(a => a.id === id)) return alert('이미 등록된 아이디입니다.');
+  // 원고 삭제
+  const deleteMs = async () => {
+    if (selectedMsIndex < 0) return;
+    if (!confirm('이 원고를 삭제하시겠습니까?')) return;
+    manuscripts.splice(selectedMsIndex, 1);
+    selectedMsIndex = -1;
+    document.getElementById('ms-editor').style.display = 'none';
+    await saveAllManuscripts();
+    renderMsList();
+  };
+  document.getElementById('btn-delete-ms').addEventListener('click', deleteMs);
+  document.getElementById('btn-delete-ms-top').addEventListener('click', deleteMs);
 
-    const result = await window.api.addAccount({ id, password: pw });
-    if (!result.success) return alert('계정 추가 실패');
-
-    modal.style.display = 'none';
-
-    // 새로고침
-    await loadAllAccounts();
+  // 카페 드롭다운 변경 → 게시판 자동 로드
+  document.getElementById('ms-cafe-select').addEventListener('change', (e) => {
+    const val = e.target.value;
+    if (val) {
+      const [cafeName, cafeId] = val.split('||');
+      document.getElementById('ms-cafe-name').value = cafeName || '';
+      document.getElementById('ms-cafe-id').value = cafeId || '';
+      const accountId = document.getElementById('ms-account').value;
+      const cacheKey = `${accountId}||${cafeId || cafeName}`;
+      if (_boardCache[cacheKey]) {
+        applyBoardList(_boardCache[cacheKey]);
+      } else {
+        fetchBoardsForCafe(cafeId || cafeName, accountId);
+      }
+    } else {
+      document.getElementById('ms-cafe-name').value = '';
+      document.getElementById('ms-cafe-id').value = '';
+    }
   });
 
-  // Enter 키로 추가
-  document.getElementById('modal-account-pw').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') btnConfirm.click();
+  // 게시 계정 변경 시 카페 목록 자동 로드 + 색상 갱신
+  document.getElementById('ms-account').addEventListener('change', (e) => {
+    const accountId = e.target.value;
+    if (accountId) {
+      getCommentAccountColor(accountId); // 색상 등록
+      applySelectColor(e.target); // 게시 계정 드롭다운 색상
+      refreshAllCommentColors(); // 댓글 드롭다운에도 반영
+    }
+    if (!accountId) return;
+    if (_cafeCache[accountId]) {
+      if (selectedMsIndex >= 0) renderCafeSelect(manuscripts[selectedMsIndex]);
+    } else {
+      fetchCafesForAccount(accountId);
+    }
+  });
+
+  // 가입 카페 새로고침 (강제)
+  document.getElementById('btn-ms-fetch-cafes').addEventListener('click', () => {
+    const accountId = document.getElementById('ms-account').value;
+    fetchCafesForAccount(accountId);
+  });
+
+  // 게시판 크롤링 (강제 새로고침)
+  document.getElementById('btn-ms-crawl').addEventListener('click', () => {
+    const cafeId = document.getElementById('ms-cafe-id').value.trim();
+    const cafeName = document.getElementById('ms-cafe-name').value.trim();
+    const accountId = document.getElementById('ms-account').value;
+    if (!cafeName && !cafeId) return showToast('카페를 선택하세요.');
+    if (!accountId) return showToast('게시 계정을 선택하세요.');
+    fetchBoardsForCafe(cafeId || cafeName, accountId);
+  });
+
+  // 세그먼트
+  document.getElementById('btn-add-text-seg').addEventListener('click', () => {
+    if (selectedMsIndex < 0) return;
+    MsHelpers.renderTextSegment(document.getElementById('ms-segments'), '');
+  });
+
+  document.getElementById('btn-add-img-seg').addEventListener('click', () => {
+    if (selectedMsIndex < 0) return;
+    MsHelpers.renderImageSegment(document.getElementById('ms-segments'), '');
+  });
+
+  // 댓글 추가
+  document.getElementById('btn-add-ms-comment').addEventListener('click', () => {
+    if (selectedMsIndex < 0) return;
+    MsHelpers.renderCommentItem(
+      document.getElementById('ms-comments-list'),
+      { accountId: '', text: '', imagePath: null, replies: [] },
+      accounts
+    );
+  });
+
+  // 프리셋
+  setupPresets();
+}
+
+function renderPresetSelect() {
+  const select = document.getElementById('preset-select');
+  select.innerHTML = '<option value="">프리셋 선택...</option>';
+  presets.forEach((p, i) => {
+    const date = p.savedAt ? new Date(p.savedAt).toLocaleDateString('ko-KR') : '';
+    const msCount = (p.manuscripts || []).length;
+    // 프리셋에 사용된 게시 계정만 수집
+    const accountIds = new Set();
+    (p.manuscripts || []).forEach(ms => {
+      if (ms.accountId) accountIds.add(ms.accountId);
+    });
+    const accountsStr = accountIds.size > 0 ? Array.from(accountIds).join(', ') : '계정 없음';
+    select.innerHTML += `<option value="${i}">${p.name} (${msCount}개 원고, ${accountsStr}, ${date})</option>`;
   });
 }
 
-// --- 이벤트 라우팅 ---
+function setupPresets() {
+  renderPresetSelect();
+
+  document.getElementById('btn-preset-save').addEventListener('click', async () => {
+    const nameInput = document.getElementById('preset-name-input');
+    let name = nameInput.value.trim();
+    // 이름 미입력 시 오늘 날짜로 자동 생성
+    if (!name) {
+      const today = new Date();
+      name = `${today.getMonth() + 1}/${today.getDate()} 작업`;
+    }
+
+    if (selectedMsIndex >= 0) collectMsData();
+
+    const snapshot = JSON.parse(JSON.stringify(manuscripts));
+    const existing = presets.findIndex(p => p.name === name);
+    if (existing >= 0) {
+      if (!confirm(`"${name}" 프리셋을 덮어쓰시겠습니까?`)) return;
+      presets[existing].manuscripts = snapshot;
+      presets[existing].savedAt = new Date().toISOString();
+    } else {
+      presets.push({ name, manuscripts: snapshot, savedAt: new Date().toISOString() });
+    }
+
+    await saveAllManuscripts();
+    renderPresetSelect();
+    nameInput.value = '';
+    showToast(`프리셋 "${name}" 저장됨 (${snapshot.length}개 원고)`);
+  });
+
+  document.getElementById('btn-preset-load').addEventListener('click', async () => {
+    const select = document.getElementById('preset-select');
+    const idx = parseInt(select.value);
+    if (isNaN(idx)) return showToast('프리셋을 선택하세요.');
+
+    const preset = presets[idx];
+    if (!preset) return;
+
+    // 현재 원고 데이터 수집
+    if (selectedMsIndex >= 0) collectMsData();
+
+    const presetMs = JSON.parse(JSON.stringify(preset.manuscripts));
+    // ID 충돌 방지
+    presetMs.forEach(ms => {
+      ms.id = 'ms-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    });
+
+    manuscripts = manuscripts.concat(presetMs);
+    showToast(`프리셋 "${preset.name}" 추가됨 (${presetMs.length}개 원고)`);
+
+    selectedMsIndex = -1;
+    document.getElementById('ms-editor').style.display = 'none';
+    await saveAllManuscripts();
+    renderMsList();
+  });
+
+  document.getElementById('btn-preset-delete').addEventListener('click', async () => {
+    const select = document.getElementById('preset-select');
+    const idx = parseInt(select.value);
+    if (isNaN(idx)) return showToast('프리셋을 선택하세요.');
+
+    const preset = presets[idx];
+    if (!preset) return;
+    if (!confirm(`"${preset.name}" 프리셋을 삭제하시겠습니까?`)) return;
+
+    presets.splice(idx, 1);
+    await saveAllManuscripts();
+    renderPresetSelect();
+  });
+}
+
+// =============================================
+// 실행 탭
+// =============================================
+
+function setupExecutionTab() {
+  document.getElementById('btn-exec-start').addEventListener('click', async () => {
+    if (selectedMsIndex >= 0) collectMsData();
+    await saveAllManuscripts();
+
+    document.getElementById('exec-log').innerHTML = '';
+    appendLog('실행을 시작합니다...');
+    setExecButtons('running');
+
+    const result = await window.api.executionStart();
+    if (!result.success) {
+      appendLog(`시작 실패: ${result.error}`, 'error');
+      setExecButtons('idle');
+    }
+  });
+
+  document.getElementById('btn-exec-pause').addEventListener('click', async () => {
+    await window.api.executionPause();
+    setExecButtons('paused');
+  });
+
+  document.getElementById('btn-exec-resume').addEventListener('click', async () => {
+    await window.api.executionResume();
+    setExecButtons('running');
+  });
+
+  document.getElementById('btn-exec-stop').addEventListener('click', async () => {
+    await window.api.executionStop();
+    setExecButtons('idle');
+    appendLog('실행이 중지되었습니다.', 'error');
+  });
+
+  // 결과
+  document.getElementById('result-select').addEventListener('change', async (e) => {
+    const fileName = e.target.value;
+    if (!fileName) { renderResults([]); return; }
+    const log = await window.api.loadResultDetail(fileName);
+    if (log && log.results) renderResults(log.results);
+  });
+
+  document.getElementById('btn-export-csv').addEventListener('click', async () => {
+    const select = document.getElementById('result-select');
+    if (!select.value) return showToast('실행 이력을 선택하세요.');
+    const result = await window.api.exportCsv(select.value);
+    if (result.success) showToast(`CSV 저장 완료: ${result.filePath}`);
+    else if (!result.cancelled) showToast('CSV 저장 실패');
+  });
+}
+
+function appendLog(msg, type) {
+  const logArea = document.getElementById('exec-log');
+  const div = document.createElement('div');
+  div.className = 'log-entry' + (type ? ' ' + type : '');
+  const time = new Date().toLocaleTimeString('ko-KR');
+  div.textContent = `[${time}] ${msg}`;
+  logArea.appendChild(div);
+  logArea.scrollTop = logArea.scrollHeight;
+}
+
+function setExecButtons(state) {
+  const s = document.getElementById('btn-exec-start');
+  const p = document.getElementById('btn-exec-pause');
+  const r = document.getElementById('btn-exec-resume');
+  const t = document.getElementById('btn-exec-stop');
+  if (state === 'running') {
+    s.disabled = true; p.disabled = false; r.disabled = true; t.disabled = false;
+  } else if (state === 'paused') {
+    s.disabled = true; p.disabled = true; r.disabled = false; t.disabled = false;
+  } else {
+    s.disabled = false; p.disabled = true; r.disabled = true; t.disabled = true;
+  }
+}
+
+function renderResults(results) {
+  const tbody = document.getElementById('results-tbody');
+  tbody.innerHTML = '';
+
+  for (const r of results) {
+    const tr = document.createElement('tr');
+    const statusClass = r.status === 'success' ? 'status-success' : 'status-failed';
+    const time = r.timestamp ? new Date(r.timestamp).toLocaleString('ko-KR') : '';
+    const cmtSummary = (r.comments || []).map(c => {
+      const icon = c.status === 'success' ? 'O' : 'X';
+      return `${c.accountId}(${icon})`;
+    }).join(', ') || '-';
+
+    tr.innerHTML = `
+      <td>${r.accountId || ''}</td>
+      <td>${r.boardName}</td>
+      <td>${r.postTitle}</td>
+      <td>${r.postUrl ? `<a href="#" class="result-link" data-url="${r.postUrl}">${r.postUrl.substring(0, 40)}...</a>` : '-'}</td>
+      <td class="${statusClass}">${r.status}${r.error ? ` (${r.error})` : ''}</td>
+      <td>${time}</td>
+      <td style="font-size:11px;">${cmtSummary}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  tbody.querySelectorAll('.result-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.api.openExternal(link.dataset.url);
+    });
+  });
+}
+
+async function loadResultsList() {
+  const logs = await window.api.loadResultsList();
+  const select = document.getElementById('result-select');
+  select.innerHTML = '<option value="">실행 이력 선택...</option>';
+  for (const log of logs) {
+    const opt = document.createElement('option');
+    opt.value = log.fileName;
+    opt.textContent = `${log.executionId} (${log.resultCount}건)`;
+    select.appendChild(opt);
+  }
+}
+
+// =============================================
+// 이벤트 리스너
+// =============================================
 
 function setupEventListeners() {
   if (_removeLogListener) _removeLogListener();
@@ -172,195 +919,602 @@ function setupEventListeners() {
   if (_removeCompleteListener) _removeCompleteListener();
 
   _removeLogListener = window.api.onExecutionLog((data) => {
-    const panel = document.querySelector(`#tab-panel-${CSS.escape(data.accountId)}`);
-    if (panel) {
-      AccountTab._appendLog(panel, data.msg);
-    }
+    appendLog(data.msg);
   });
 
   _removeProgressListener = window.api.onExecutionProgress((data) => {
-    const panel = document.querySelector(`#tab-panel-${CSS.escape(data.accountId)}`);
-    if (panel) {
-      AccountTab.updateProgress(panel, data);
-    }
+    const bar = document.getElementById('exec-progress-bar');
+    const text = document.getElementById('exec-progress-text');
+    const percent = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
+    bar.style.width = percent + '%';
+    text.textContent = `${data.current} / ${data.total} (${percent}%) - ${data.detail || ''}`;
   });
 
   _removeCompleteListener = window.api.onExecutionComplete((data) => {
-    const panel = document.querySelector(`#tab-panel-${CSS.escape(data.accountId)}`);
-    if (panel) {
-      AccountTab.onComplete(panel, data.log);
-      AccountTab.loadResultsList(panel, data.accountId);
-    }
-
-    // 전체 실행 중이면 다음 계정 진행
-    if (globalRunning) {
-      globalRunNextAccount();
-    }
+    setExecButtons('idle');
+    const log = data.log || {};
+    const successCount = (log.results || []).filter(r => r.status === 'success').length;
+    const failCount = (log.results || []).filter(r => r.status === 'failed').length;
+    appendLog(`실행 완료! 성공: ${successCount}, 실패: ${failCount}`, 'success');
+    document.getElementById('exec-progress-bar').style.width = '100%';
+    loadResultsList();
   });
 }
 
-// --- 계정 삭제 이벤트 ---
+// =============================================
+// 좋아요 탭
+// =============================================
 
-document.addEventListener('account-deleted', (e) => {
-  const { accountId } = e.detail;
-  removeAccountTab(accountId);
-});
+let _likeArticles = [];
+const _likeCafeCache = {};
+const _likeArticleCache = {}; // 키: accountId||cafeId → 게시글 캐시
 
-// --- 전체 실행 ---
+function renderLikeAccountList() {
+  const authorId = document.getElementById('like-author-account').value;
+  const container = document.getElementById('like-account-list');
+  const mode = document.querySelector('input[name="like-account-mode"]:checked').value;
+  container.innerHTML = '';
 
-function setupGlobalExecution() {
-  const startBtn = document.getElementById('btn-global-start');
-  const stopBtn = document.getElementById('btn-global-stop');
+  const filtered = accounts.filter(a => a.id !== authorId);
 
-  startBtn.addEventListener('click', () => globalStartAll());
-  stopBtn.addEventListener('click', () => globalStopAll());
-}
-
-async function globalStartAll() {
-  if (accounts.length === 0) return alert('등록된 계정이 없습니다.');
-  if (globalRunning) return;
-
-  globalRunning = true;
-  globalQueue = accounts.map(a => a.id);
-  globalCurrentIdx = 0;
-
-  const bar = document.getElementById('global-exec-bar');
-  bar.classList.add('running');
-  document.getElementById('btn-global-start').disabled = true;
-  document.getElementById('btn-global-stop').disabled = false;
-
-  // 개별 시작 버튼 비활성화
-  setIndividualStartButtons(true);
-
-  globalUpdateText();
-  await globalRunAccount(globalQueue[0]);
-}
-
-function globalStopAll() {
-  if (!globalRunning) return;
-
-  const currentAccountId = globalQueue[globalCurrentIdx];
-  if (currentAccountId) {
-    window.api.executionStop(currentAccountId);
-    const panel = document.querySelector(`#tab-panel-${CSS.escape(currentAccountId)}`);
-    if (panel) {
-      AccountTab._setExecButtons(panel, 'idle');
-      AccountTab._appendLog(panel, '전체 실행 중지됨', 'error');
-    }
-  }
-
-  globalFinish();
-}
-
-function globalFinish() {
-  globalRunning = false;
-  globalQueue = [];
-  globalCurrentIdx = 0;
-
-  const bar = document.getElementById('global-exec-bar');
-  bar.classList.remove('running');
-  document.getElementById('btn-global-start').disabled = false;
-  document.getElementById('btn-global-stop').disabled = true;
-  document.getElementById('global-exec-text').textContent = '완료';
-
-  setIndividualStartButtons(false);
-}
-
-async function globalRunAccount(accountId) {
-  globalUpdateText();
-
-  // 해당 탭으로 전환 + 실행 서브탭으로 이동
-  switchTab(accountId);
-  switchSubtab('execution');
-
-  const panel = document.querySelector(`#tab-panel-${CSS.escape(accountId)}`);
-  if (panel) {
-    if (panel._selectedMsIndex >= 0) AccountTab._collectMsData(panel);
-    const account = accounts.find(a => a.id === accountId);
-    if (account) await AccountTab._saveAccountData(panel, account);
-
-    const logArea = panel.querySelector('.exec-log');
-    logArea.innerHTML = '';
-    AccountTab._appendLog(panel, '[전체 실행] 실행을 시작합니다...');
-    AccountTab._setExecButtons(panel, 'running');
-  }
-
-  const result = await window.api.executionStart(accountId);
-  if (!result.success) {
-    if (panel) {
-      AccountTab._appendLog(panel, `시작 실패: ${result.error}`, 'error');
-      AccountTab._setExecButtons(panel, 'idle');
-    }
-    globalRunNextAccount();
-  }
-}
-
-async function globalRunNextAccount() {
-  globalCurrentIdx++;
-
-  if (globalCurrentIdx >= globalQueue.length) {
-    globalFinish();
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="color:#8892b0; font-size:12px;">작성자를 제외한 계정이 없습니다.</div>';
     return;
   }
 
-  globalUpdateText();
-  await globalRunAccount(globalQueue[globalCurrentIdx]);
-}
+  // 그리드 스타일 초기화
+  container.style.display = '';
+  container.style.gridTemplateColumns = '';
+  container.style.gap = '';
 
-function globalUpdateText() {
-  const textEl = document.getElementById('global-exec-text');
-  const current = globalCurrentIdx + 1;
-  const total = globalQueue.length;
-  const currentId = globalQueue[globalCurrentIdx] || '';
-  textEl.textContent = `${current}/${total} 계정 처리 중 (${currentId})`;
-}
+  if (mode === 'random') {
+    // 랜덤 모드: 목록 숨기고 요약만 표시
+    container.innerHTML = `<div style="color:#64ffda; font-size:13px; padding:8px 0;">전체 ${filtered.length}개 계정에서 랜덤 선택</div>`;
+    // 숨겨진 체크박스로 전체 계정 등록
+    filtered.forEach(acc => {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'like-account-check';
+      input.value = acc.id;
+      input.checked = true;
+      input.style.display = 'none';
+      container.appendChild(input);
+    });
+    return;
+  }
 
-function setIndividualStartButtons(disabled) {
-  document.querySelectorAll('.tab-panel .btn-exec-start').forEach(btn => {
-    btn.disabled = disabled;
+  // 직접 선택 모드: 4열 그리드
+  container.style.display = 'grid';
+  container.style.gridTemplateColumns = 'repeat(4, 1fr)';
+  container.style.gap = '2px 12px';
+
+  filtered.forEach(acc => {
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex; align-items:center; gap:4px; padding:3px 0; cursor:pointer; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+    label.innerHTML = `<input type="checkbox" class="like-account-check" value="${acc.id}" checked> ${acc.id}`;
+    container.appendChild(label);
   });
 }
 
-// --- 초기화 ---
+function renderLikeArticleList() {
+  const container = document.getElementById('like-article-list');
+  container.innerHTML = '';
 
-async function loadAllAccounts() {
-  accounts = await window.api.loadAccounts();
-  AccountTab._accounts = accounts;
-
-  const sidebarAccounts = document.getElementById('sidebar-accounts');
-  const tabContent = document.getElementById('tab-content');
-  const subtabNav = document.getElementById('subtab-nav');
-
-  // 기존 버튼/패널 정리
-  sidebarAccounts.innerHTML = '';
-  tabContent.querySelectorAll('.tab-panel').forEach(p => p.remove());
-
-  if (accounts.length === 0) {
-    const empty = document.getElementById('empty-state');
-    if (empty) empty.style.display = 'block';
-    if (subtabNav) subtabNav.style.display = 'none';
-    activeAccountId = null;
+  if (_likeArticles.length === 0) {
+    container.innerHTML = '<div style="color:#8892b0; font-size:12px;">게시글이 없습니다.</div>';
     return;
   }
 
-  const empty = document.getElementById('empty-state');
-  if (empty) empty.style.display = 'none';
-  if (subtabNav) subtabNav.style.display = 'flex';
-
-  for (const account of accounts) {
-    addAccountTab(account);
-  }
-
-  // 첫 번째 탭 활성화
-  switchTab(accounts[0].id);
+  _likeArticles.forEach((art, i) => {
+    const div = document.createElement('label');
+    div.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 4px; cursor:pointer; font-size:13px; border-bottom:1px solid #1b2838;';
+    const date = art.writeDateTimestamp ? new Date(art.writeDateTimestamp).toLocaleDateString('ko-KR') : '';
+    const articleUrl = art.cafeName && art.articleId ? `https://cafe.naver.com/${art.cafeName}/${art.articleId}` : '';
+    div.innerHTML = `
+      <input type="checkbox" class="like-article-check" data-index="${i}" checked>
+      ${articleUrl
+        ? `<a href="${articleUrl}" target="_blank" style="font-size:11px; color:#64ffda; flex-shrink:0; text-decoration:underline; cursor:pointer;">링크</a>`
+        : ''
+      }
+      <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${art.subject}</span>
+      <span style="font-size:11px; color:#8892b0; flex-shrink:0;">${date}</span>
+    `;
+    container.appendChild(div);
+  });
 }
+
+function setupLikeTab() {
+  // 작성자 계정 드롭다운
+  const authorSelect = document.getElementById('like-author-account');
+  authorSelect.innerHTML = '<option value="">계정 선택...</option>';
+  accounts.forEach(a => {
+    authorSelect.innerHTML += `<option value="${a.id}">${a.id}</option>`;
+  });
+
+  // 작성자 변경 시 계정 목록 갱신 + 카페 자동 불러오기
+  authorSelect.addEventListener('change', async () => {
+    renderLikeAccountList();
+    const accountId = authorSelect.value;
+    if (accountId) {
+      if (_likeCafeCache[accountId]) {
+        renderLikeCafeSelect();
+      } else {
+        // 카페 목록 자동 로드 (원고탭과 동일한 패턴)
+        const statusEl = document.getElementById('like-fetch-status');
+        statusEl.textContent = '카페 불러오는 중...';
+        const result = await window.api.fetchJoinedCafes(accountId);
+        if (result.success) {
+          _likeCafeCache[accountId] = result.cafes;
+          statusEl.textContent = `${result.cafes.length}개 카페`;
+          renderLikeCafeSelect();
+        } else {
+          statusEl.textContent = `실패: ${result.error}`;
+          renderLikeCafeSelect();
+        }
+      }
+    } else {
+      renderLikeCafeSelect();
+    }
+  });
+
+  // 카페 새로고침
+  document.getElementById('btn-like-fetch-cafes').addEventListener('click', async () => {
+    const accountId = authorSelect.value;
+    if (!accountId) return showToast('작성자 계정을 선택하세요.');
+    const statusEl = document.getElementById('like-fetch-status');
+    statusEl.textContent = '카페 불러오는 중...';
+
+    const result = await window.api.fetchJoinedCafes(accountId);
+    if (result.success) {
+      _likeCafeCache[accountId] = result.cafes;
+      statusEl.textContent = `${result.cafes.length}개 카페`;
+      renderLikeCafeSelect();
+    } else {
+      statusEl.textContent = `실패: ${result.error}`;
+    }
+  });
+
+  // 카페 선택 시 자동으로 게시글 불러오기 (캐시 사용)
+  document.getElementById('like-cafe-select').addEventListener('change', async (e) => {
+    const cafeVal = e.target.value;
+    if (!cafeVal) return;
+    const accountId = authorSelect.value;
+    if (!accountId) return;
+    const [cafeName, cafeId] = cafeVal.split('||');
+    const cacheKey = `${accountId}||${cafeId}`;
+
+    if (_likeArticleCache[cacheKey]) {
+      // 캐시 사용
+      _likeArticles = _likeArticleCache[cacheKey];
+      document.getElementById('like-fetch-status').textContent = `${_likeArticles.length}개 게시글 (캐시)`;
+      renderLikeArticleList();
+    } else {
+      await fetchLikeArticles(accountId, cafeName, cafeId);
+    }
+  });
+
+  // 게시글 불러오기 버튼 (강제 새로고침)
+  document.getElementById('btn-like-fetch-articles').addEventListener('click', async () => {
+    const accountId = authorSelect.value;
+    const cafeVal = document.getElementById('like-cafe-select').value;
+    if (!accountId) return showToast('작성자 계정을 선택하세요.');
+    if (!cafeVal) return showToast('카페를 선택하세요.');
+
+    const [cafeName, cafeId] = cafeVal.split('||');
+    await fetchLikeArticles(accountId, cafeName, cafeId);
+  });
+
+  // 모드 변경 시 계정 목록 다시 렌더링
+  document.querySelectorAll('input[name="like-account-mode"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      renderLikeAccountList();
+    });
+  });
+
+  // 전체 선택 (직접 선택 모드에서만 유효)
+  document.getElementById('like-select-all-accounts').addEventListener('change', (e) => {
+    document.querySelectorAll('.like-account-check').forEach(cb => {
+      cb.checked = e.target.checked;
+    });
+  });
+
+  // 좋아요 시작
+  document.getElementById('btn-like-start').addEventListener('click', async () => {
+    const selectedArticles = [];
+    document.querySelectorAll('.like-article-check:checked').forEach(cb => {
+      const idx = parseInt(cb.dataset.index);
+      if (_likeArticles[idx]) selectedArticles.push(_likeArticles[idx]);
+    });
+
+    if (selectedArticles.length === 0) return showToast('좋아요할 게시글을 선택하세요.');
+
+    const likerIds = [];
+    document.querySelectorAll('.like-account-check:checked').forEach(cb => {
+      likerIds.push(cb.value);
+    });
+
+    if (likerIds.length === 0) return showToast('좋아요 누를 계정을 선택하세요.');
+
+    const likeCount = parseInt(document.getElementById('like-count').value) || 1;
+    const mode = document.querySelector('input[name="like-account-mode"]:checked').value;
+
+    document.getElementById('like-log').innerHTML = '';
+    document.getElementById('like-progress-bar').style.width = '0%';
+    document.getElementById('like-progress-text').textContent = '시작 중...';
+    document.getElementById('btn-like-start').disabled = true;
+    document.getElementById('btn-like-stop').disabled = false;
+
+    await window.api.executeLikes({
+      targetArticles: selectedArticles,
+      likerAccountIds: likerIds,
+      randomMode: mode === 'random',
+      likeCount,
+    });
+  });
+
+  // 중지
+  document.getElementById('btn-like-stop').addEventListener('click', async () => {
+    await window.api.stopLikes();
+    document.getElementById('btn-like-start').disabled = false;
+    document.getElementById('btn-like-stop').disabled = true;
+    appendLikeLog('중지됨', 'error');
+  });
+
+  // 이벤트 리스너
+  if (_removeLikeLogListener) _removeLikeLogListener();
+  if (_removeLikeProgressListener) _removeLikeProgressListener();
+  if (_removeLikeCompleteListener) _removeLikeCompleteListener();
+
+  _removeLikeLogListener = window.api.onLikeLog((data) => {
+    appendLikeLog(data.msg);
+  });
+
+  _removeLikeProgressListener = window.api.onLikeProgress((data) => {
+    const percent = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
+    document.getElementById('like-progress-bar').style.width = percent + '%';
+    document.getElementById('like-progress-text').textContent = `${data.current} / ${data.total} (${percent}%)`;
+  });
+
+  _removeLikeCompleteListener = window.api.onLikeComplete(() => {
+    document.getElementById('btn-like-start').disabled = false;
+    document.getElementById('btn-like-stop').disabled = true;
+    appendLikeLog('완료', 'success');
+    document.getElementById('like-progress-bar').style.width = '100%';
+  });
+
+  renderLikeAccountList();
+
+  // 탭 전환 시 계정 목록 갱신
+  document.querySelector('.tab-btn[data-tab="like"]').addEventListener('click', () => {
+    // 계정 목록 최신화
+    const authorSelect = document.getElementById('like-author-account');
+    const currentVal = authorSelect.value;
+    authorSelect.innerHTML = '<option value="">계정 선택...</option>';
+    accounts.forEach(a => {
+      authorSelect.innerHTML += `<option value="${a.id}" ${a.id === currentVal ? 'selected' : ''}>${a.id}</option>`;
+    });
+    renderLikeAccountList();
+  });
+}
+
+async function fetchLikeArticles(accountId, cafeName, cafeId) {
+  const statusEl = document.getElementById('like-fetch-status');
+  statusEl.textContent = '게시글 불러오는 중...';
+
+  const result = await window.api.fetchMemberArticles(accountId, cafeId);
+  if (result.success) {
+    _likeArticles = result.articles.map(a => ({ ...a, cafeName, cafeId }));
+    const cacheKey = `${accountId}||${cafeId}`;
+    _likeArticleCache[cacheKey] = _likeArticles;
+    statusEl.textContent = `${result.articles.length}개 게시글 (총 ${result.totalCount}개)`;
+    renderLikeArticleList();
+  } else {
+    statusEl.textContent = `실패: ${result.error}`;
+    _likeArticles = [];
+    renderLikeArticleList();
+  }
+}
+
+function renderLikeCafeSelect() {
+  const accountId = document.getElementById('like-author-account').value;
+  const select = document.getElementById('like-cafe-select');
+  select.innerHTML = '<option value="">카페 선택...</option>';
+
+  const cafes = _likeCafeCache[accountId] || [];
+  cafes.forEach(cafe => {
+    const opt = document.createElement('option');
+    opt.value = `${cafe.cafeName}||${cafe.cafeId}`;
+    opt.textContent = `${cafe.cafeTitle} (${cafe.cafeName})`;
+    select.appendChild(opt);
+  });
+}
+
+function appendLikeLog(msg, type) {
+  const logArea = document.getElementById('like-log');
+  const div = document.createElement('div');
+  div.className = 'log-entry' + (type ? ' ' + type : '');
+  const time = new Date().toLocaleTimeString('ko-KR');
+  div.textContent = `[${time}] ${msg}`;
+  logArea.appendChild(div);
+  logArea.scrollTop = logArea.scrollHeight;
+}
+
+// =============================================
+// 초기화
+// =============================================
 
 async function initApp() {
-  setupAddAccountModal();
+  setupTabs();
+
+  // 데이터 로드
+  accounts = await window.api.loadAccounts();
+  settings = await window.api.loadSettings();
+  const msData = await window.api.loadManuscripts();
+  manuscripts = msData.manuscripts || [];
+  presets = msData.presets || [];
+
+  // 설정 탭
+  renderAccountsTable();
+  setupAddAccount();
+  setupSettingsToggles();
+
+  // 원고 탭
+  renderMsList();
+  setupManuscriptsTab();
+
+  // 실행 탭
+  setupExecutionTab();
   setupEventListeners();
-  setupGlobalExecution();
-  setupSubtabNav();
-  await loadAllAccounts();
+  loadResultsList();
+
+  // 삭제 탭
+  setupDeleteTab();
+
+  // 좋아요 탭
+  setupLikeTab();
+
+  // 조회수 탭
+  setupViewCountTab();
+}
+
+// =============================================
+// 조회수 탭
+// =============================================
+
+let _vcLinks = [];
+
+function renderVcLinks() {
+  const container = document.getElementById('vc-links-list');
+  if (_vcLinks.length === 0) {
+    container.innerHTML = '<div style="color:#8892b0; font-size:12px;">등록된 링크가 없습니다.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  _vcLinks.forEach((link, i) => {
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #1b2838;';
+    div.innerHTML = `
+      <span style="font-size:12px; color:#8892b0; min-width:24px;">${i + 1}.</span>
+      <a href="#" class="vc-link-url" data-url="${link}" style="flex:1; font-size:12px; color:#64ffda; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${link}</a>
+      <button class="btn btn-sm btn-danger vc-del-link" data-index="${i}" style="padding:2px 8px; font-size:11px;">삭제</button>
+    `;
+    container.appendChild(div);
+  });
+
+  container.querySelectorAll('.vc-link-url').forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.api.openExternal(a.dataset.url);
+    });
+  });
+
+  container.querySelectorAll('.vc-del-link').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _vcLinks.splice(parseInt(btn.dataset.index), 1);
+      renderVcLinks();
+      saveVcConfig();
+    });
+  });
+}
+
+function saveVcConfig() {
+  window.api.saveViewCountConfig({ links: _vcLinks });
+}
+
+function appendVcLog(msg, type) {
+  const logArea = document.getElementById('vc-log');
+  const div = document.createElement('div');
+  div.className = 'log-entry' + (type ? ' ' + type : '');
+  const time = new Date().toLocaleTimeString('ko-KR');
+  div.textContent = `[${time}] ${msg}`;
+  logArea.appendChild(div);
+  logArea.scrollTop = logArea.scrollHeight;
+}
+
+async function setupViewCountTab() {
+  // 설정 로드
+  const config = await window.api.loadViewCountConfig();
+  _vcLinks = config.links || [];
+
+  renderVcLinks();
+
+  // 링크 추가
+  document.getElementById('btn-vc-add-link').addEventListener('click', () => {
+    const link = document.getElementById('vc-new-link').value.trim();
+    if (!link) return showToast('링크를 입력하세요.');
+    if (_vcLinks.includes(link)) return showToast('이미 등록된 링크입니다.');
+    _vcLinks.push(link);
+    document.getElementById('vc-new-link').value = '';
+    renderVcLinks();
+    saveVcConfig();
+  });
+
+  // 링크 일괄 추가
+  document.getElementById('btn-vc-bulk-links').addEventListener('click', () => {
+    const text = document.getElementById('vc-bulk-links').value.trim();
+    if (!text) return showToast('붙여넣기할 내용이 없습니다.');
+    const lines = text.split('\n').filter(l => l.trim());
+    let added = 0;
+    for (const line of lines) {
+      const link = line.trim();
+      if (link && !_vcLinks.includes(link)) {
+        _vcLinks.push(link);
+        added++;
+      }
+    }
+    document.getElementById('vc-bulk-links').value = '';
+    renderVcLinks();
+    saveVcConfig();
+    showToast(`${added}개 링크 추가됨`);
+  });
+
+  // 링크 전체 삭제
+  document.getElementById('btn-vc-clear-links').addEventListener('click', () => {
+    if (_vcLinks.length === 0) return;
+    if (!confirm('모든 링크를 삭제하시겠습니까?')) return;
+    _vcLinks = [];
+    renderVcLinks();
+    saveVcConfig();
+  });
+
+  // 시작
+  document.getElementById('btn-vc-start').addEventListener('click', async () => {
+    if (_vcLinks.length === 0) return showToast('조회할 링크를 등록하세요.');
+
+    const totalCount = parseInt(document.getElementById('vc-count').value) || 10;
+
+    document.getElementById('vc-log').innerHTML = '';
+    document.getElementById('vc-progress-bar').style.width = '0%';
+    document.getElementById('vc-progress-text').textContent = '시작 중...';
+    document.getElementById('btn-vc-start').disabled = true;
+    document.getElementById('btn-vc-stop').disabled = false;
+
+    await window.api.executeViewCount({
+      links: _vcLinks,
+      totalCount,
+    });
+  });
+
+  // 중지
+  document.getElementById('btn-vc-stop').addEventListener('click', async () => {
+    await window.api.stopViewCount();
+    document.getElementById('btn-vc-start').disabled = false;
+    document.getElementById('btn-vc-stop').disabled = true;
+    appendVcLog('중지됨', 'error');
+  });
+
+  // 이벤트 리스너
+  if (_removeVcLogListener) _removeVcLogListener();
+  if (_removeVcProgressListener) _removeVcProgressListener();
+  if (_removeVcCompleteListener) _removeVcCompleteListener();
+
+  _removeVcLogListener = window.api.onViewCountLog((data) => {
+    appendVcLog(data.msg);
+  });
+
+  _removeVcProgressListener = window.api.onViewCountProgress((data) => {
+    const percent = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
+    document.getElementById('vc-progress-bar').style.width = percent + '%';
+    document.getElementById('vc-progress-text').textContent = `${data.current} / ${data.total} (${percent}%)`;
+  });
+
+  _removeVcCompleteListener = window.api.onViewCountComplete(() => {
+    document.getElementById('btn-vc-start').disabled = false;
+    document.getElementById('btn-vc-stop').disabled = true;
+    appendVcLog('완료', 'success');
+    document.getElementById('vc-progress-bar').style.width = '100%';
+  });
+}
+
+// =============================================
+// 삭제 탭
+// =============================================
+
+async function renderDeleteTable() {
+  const schedule = await window.api.loadDeleteSchedule();
+  const tbody = document.getElementById('delete-tbody');
+  tbody.innerHTML = '';
+
+  // 최신순 정렬
+  schedule.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+  for (const entry of schedule) {
+    const tr = document.createElement('tr');
+    const statusClass = entry.status === 'deleted' ? 'status-deleted' : entry.status === 'failed' ? 'status-failed' : 'status-posted';
+    const date = entry.createdAt ? new Date(entry.createdAt).toLocaleString('ko-KR') : '';
+
+    tr.innerHTML = `
+      <td><input type="checkbox" class="delete-check" data-url="${entry.postUrl}" ${entry.status === 'deleted' ? 'disabled' : ''}></td>
+      <td>${entry.accountId || ''}</td>
+      <td>${entry.postTitle || ''}</td>
+      <td>${entry.postUrl ? `<a href="#" class="result-link" data-url="${entry.postUrl}" style="font-size:11px;">${entry.postUrl.substring(0, 45)}...</a>` : '-'}</td>
+      <td style="font-size:11px;">${date}</td>
+      <td class="${statusClass}">${entry.status || 'posted'}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  // 링크 클릭
+  tbody.querySelectorAll('.result-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.api.openExternal(link.dataset.url);
+    });
+  });
+}
+
+function getSelectedDeleteUrls() {
+  return Array.from(document.querySelectorAll('.delete-check:checked'))
+    .map(cb => cb.dataset.url);
+}
+
+function setupDeleteTab() {
+  // 전체 선택
+  document.getElementById('delete-select-all').addEventListener('change', (e) => {
+    document.querySelectorAll('.delete-check:not(:disabled)').forEach(cb => {
+      cb.checked = e.target.checked;
+    });
+  });
+
+  // 선택 삭제 (실제 네이버에서 삭제)
+  document.getElementById('btn-delete-selected').addEventListener('click', async () => {
+    const urls = getSelectedDeleteUrls();
+    if (urls.length === 0) return showToast('삭제할 게시글을 선택하세요.');
+    if (!confirm(`선택한 ${urls.length}개 게시글을 네이버에서 삭제하시겠습니까?`)) return;
+
+    const statusEl = document.getElementById('delete-status');
+    statusEl.textContent = `${urls.length}개 삭제 중...`;
+
+    const result = await window.api.deletePosts(urls);
+    if (result.success) {
+      const deleted = result.results.filter(r => r.status === 'deleted').length;
+      const failed = result.results.filter(r => r.status === 'failed').length;
+      statusEl.textContent = `삭제 완료: 성공 ${deleted}, 실패 ${failed}`;
+    } else {
+      statusEl.textContent = `오류: ${result.error}`;
+    }
+
+    await renderDeleteTable();
+    setTimeout(() => { statusEl.textContent = ''; }, 5000);
+  });
+
+  // 목록에서 제거 (삭제 기록만 제거)
+  document.getElementById('btn-delete-remove-selected').addEventListener('click', async () => {
+    const urls = getSelectedDeleteUrls();
+    if (urls.length === 0) return showToast('제거할 항목을 선택하세요.');
+    if (!confirm(`선택한 ${urls.length}개 항목을 목록에서 제거하시겠습니까?\n(네이버 게시글은 삭제되지 않습니다)`)) return;
+
+    await window.api.removeDeleteEntries(urls);
+    await renderDeleteTable();
+    showToast(`${urls.length}개 항목 제거됨`);
+  });
+
+  // 탭 전환 시 자동 로드
+  document.querySelector('.tab-btn[data-tab="delete-manage"]').addEventListener('click', () => {
+    renderDeleteTable();
+  });
+
+  renderDeleteTable();
 }
 
 initApp();

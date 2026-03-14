@@ -3,39 +3,29 @@ const store = require('./data/store');
 const browserManager = require('./core/browser-manager');
 const auth = require('./core/auth');
 const crawl = require('./core/crawl');
-const ipChecker = require('./core/ip-checker');
 const ipChanger = require('./core/ip-changer');
 const postDeleter = require('./core/post-deleter');
 const commentWriter = require('./core/comment-writer');
+const postLiker = require('./core/post-liker');
+const viewCounter = require('./core/view-counter');
 const Executor = require('./engine/executor');
+const nicknameGenerator = require('./core/nickname-generator');
 
-const executors = new Map(); // accountId -> Executor
+let globalExecutor = null;
 let deleteCheckInterval = null;
+let likeAbortFlag = false;
+let viewCountAbortFlag = false;
 
 function registerHandlers(mainWindow) {
   // === 계정 CRUD ===
   ipcMain.handle('accounts:load', () => store.loadAccounts());
 
   ipcMain.handle('account:add', (_e, account) => {
-    const newAccount = {
+    const ok = store.addAccount({
       id: account.id,
       password: account.password,
-      cafeId: account.cafeId || '',
-      cafeName: account.cafeName || '',
-      features: {
-        posting: true,
-        comment: true,
-        ipChange: false,
-        nicknameChange: false,
-        autoDelete: false,
-      },
       nickname: '',
-      ipChangeConfig: { interfaceName: '' },
-      boards: [],
-      manuscripts: [],
-      standaloneComments: [],
-    };
-    const ok = store.addAccount(newAccount);
+    });
     return { success: ok };
   });
 
@@ -45,13 +35,13 @@ function registerHandlers(mainWindow) {
   });
 
   ipcMain.handle('account:delete', (_e, accountId) => {
-    // 실행 중이면 중지
-    if (executors.has(accountId)) {
-      executors.get(accountId).stop();
-      executors.delete(accountId);
-    }
     const ok = store.deleteAccount(accountId);
     return { success: ok };
+  });
+
+  ipcMain.handle('accounts:has-cookies', (_e, accountId) => {
+    const cookies = store.loadCookies(accountId);
+    return !!(cookies && cookies.length > 0);
   });
 
   ipcMain.handle('accounts:login-test', async (_e, accountId) => {
@@ -63,12 +53,10 @@ function registerHandlers(mainWindow) {
       browser = await browserManager.launchBrowser();
       const page = await browserManager.createPage(browser);
       const result = await auth.loginAccount(page, account.id, account.password);
-
       if (result.success) {
         const cookies = await page.cookies();
         store.saveCookies(account.id, cookies);
       }
-
       await browser.close();
       return { success: result.success, method: result.method };
     } catch (e) {
@@ -77,47 +65,49 @@ function registerHandlers(mainWindow) {
     }
   });
 
-  // === 크롤링 ===
-  ipcMain.handle('crawl:boards', async (_e, cafeName, accountId) => {
-    let browser = null;
+  // === 설정 (글로벌) ===
+  ipcMain.handle('settings:load', () => store.loadSettings());
+  ipcMain.handle('settings:save', (_e, settings) => {
+    store.saveSettings(settings);
+    return { success: true };
+  });
+
+  // === 닉네임 단어 ===
+  ipcMain.handle('nickname-words:load', () => {
+    const custom = store.loadNicknameWords();
+    return {
+      adjectives: custom.adjectives && custom.adjectives.length > 0 ? custom.adjectives : [],
+      nouns: custom.nouns && custom.nouns.length > 0 ? custom.nouns : [],
+      defaultAdjectives: nicknameGenerator.defaultAdjectives,
+      defaultNouns: nicknameGenerator.defaultNouns,
+    };
+  });
+
+  ipcMain.handle('nickname-words:save', (_e, data) => {
+    store.saveNicknameWords({ adjectives: data.adjectives || [], nouns: data.nouns || [] });
+    nicknameGenerator.setCustomWords(data.adjectives, data.nouns);
+    return { success: true };
+  });
+
+  // === 원고 (글로벌) ===
+  ipcMain.handle('manuscripts:load', () => store.loadGlobalManuscripts());
+  ipcMain.handle('manuscripts:save', (_e, data) => {
+    store.saveGlobalManuscripts(data);
+    return { success: true };
+  });
+
+  // === 가입 카페 목록 ===
+  ipcMain.handle('cafes:joined', async (_e, accountId) => {
     try {
-      // accountId가 지정되면 해당 계정 쿠키 사용, 아니면 첫 번째 계정
-      let targetAccountId = accountId;
-      if (!targetAccountId) {
-        const accounts = store.loadAccounts();
-        if (accounts.length === 0) return { success: false, error: '계정이 없습니다.' };
-        targetAccountId = accounts[0].id;
-      }
-
-      const cookies = store.loadCookies(targetAccountId);
-      if (!cookies) return { success: false, error: `${targetAccountId} 계정의 쿠키가 없습니다. 먼저 로그인 테스트를 실행하세요.` };
-
-      browser = await browserManager.launchBrowser();
-      const page = await browserManager.createPage(browser);
-      await page.setCookie(...cookies);
-
-      // cafeName이 슬러그면 숫자 ID를 자동 추출
-      const existingAccount = accountId ? store.getAccount(accountId) : null;
-      const existingCafeId = existingAccount ? existingAccount.cafeId : '';
-      const result = await crawl.crawlBoards(page, existingCafeId || cafeName, cafeName);
-      await browser.close();
-
-      // 추출된 숫자 ID를 계정에 저장
-      if (result.cafeId && accountId) {
-        store.updateAccount(accountId, { cafeId: result.cafeId });
-      }
-
-      store.saveCrawlCache(cafeName, result);
-
-      return { success: true, ...result };
+      const cafes = await crawl.fetchJoinedCafes(accountId);
+      return { success: true, cafes };
     } catch (e) {
-      if (browser) await browser.close().catch(() => {});
       return { success: false, error: e.message };
     }
   });
 
-  // === 댓글 크롤링 ===
-  ipcMain.handle('crawl:comments', async (_e, postUrl, accountId) => {
+  // === 크롤링 ===
+  ipcMain.handle('crawl:boards', async (_e, cafeName, accountId) => {
     let browser = null;
     try {
       let targetAccountId = accountId;
@@ -134,11 +124,11 @@ function registerHandlers(mainWindow) {
       const page = await browserManager.createPage(browser);
       await page.setCookie(...cookies);
 
-      const frame = await commentWriter.navigateToArticle(page, postUrl);
-      const comments = await commentWriter.crawlComments(frame);
-
+      const result = await crawl.crawlBoards(page, cafeName, cafeName);
       await browser.close();
-      return { success: true, comments };
+
+      store.saveCrawlCache(cafeName, result);
+      return { success: true, ...result };
     } catch (e) {
       if (browser) await browser.close().catch(() => {});
       return { success: false, error: e.message };
@@ -159,90 +149,132 @@ function registerHandlers(mainWindow) {
     }
   });
 
-  // === 자동삭제 ===
+  // === 삭제 관리 ===
   ipcMain.handle('delete-schedule:load', () => store.loadDeleteSchedule());
 
-  ipcMain.handle('delete-schedule:process', async () => {
+  ipcMain.handle('delete-schedule:remove', (_e, postUrls) => {
+    store.removeDeleteEntries(postUrls);
+    return { success: true };
+  });
+
+  ipcMain.handle('delete-schedule:delete-posts', async (_e, postUrls) => {
+    let browser = null;
+    const results = [];
     try {
-      const results = await postDeleter.processDueDeletes(browserManager, auth, (msg) => {
-        mainWindow.webContents.send('execution:log', { accountId: '__system__', msg });
-      });
+      // 삭제할 항목을 계정별로 그룹핑
+      const schedule = store.loadDeleteSchedule();
+      const targets = schedule.filter(e => postUrls.includes(e.postUrl));
+      const grouped = {};
+      for (const entry of targets) {
+        if (!grouped[entry.accountId]) grouped[entry.accountId] = [];
+        grouped[entry.accountId].push(entry);
+      }
+
+      browser = await browserManager.launchBrowser();
+      const page = await browserManager.createPage(browser);
+
+      const settings = store.loadSettings();
+
+      for (const [accountId, entries] of Object.entries(grouped)) {
+        const account = store.getAccount(accountId);
+        if (!account) {
+          for (const entry of entries) {
+            store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: '계정 없음' });
+            results.push({ postUrl: entry.postUrl, status: 'failed', error: '계정 없음' });
+          }
+          continue;
+        }
+
+        // IP 변경
+        if (settings.ipChange && settings.ipChange.enabled) {
+          try {
+            const iface = settings.ipChange.interfaceName || null;
+            const newIp = await ipChanger.changeIP(iface);
+            mainWindow.webContents.send('execution:log', { msg: `IP 변경 완료: ${newIp || '확인 불가'}` });
+          } catch (e) {
+            mainWindow.webContents.send('execution:log', { msg: `IP 변경 실패: ${e.message}` });
+          }
+        }
+
+        const loginResult = await auth.loginAccount(page, account.id, account.password);
+        if (!loginResult.success) {
+          for (const entry of entries) {
+            store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: '로그인 실패' });
+            results.push({ postUrl: entry.postUrl, status: 'failed', error: '로그인 실패' });
+          }
+          continue;
+        }
+
+        for (const entry of entries) {
+          try {
+            await postDeleter.deletePost(page, entry.postUrl);
+            store.updateDeleteEntry(entry.postUrl, { status: 'deleted', deletedAt: new Date().toISOString() });
+            results.push({ postUrl: entry.postUrl, status: 'deleted' });
+            mainWindow.webContents.send('execution:log', { msg: `삭제 완료: ${entry.postTitle || entry.postUrl}` });
+          } catch (e) {
+            store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: e.message });
+            results.push({ postUrl: entry.postUrl, status: 'failed', error: e.message });
+            mainWindow.webContents.send('execution:log', { msg: `삭제 실패: ${entry.postTitle || entry.postUrl} - ${e.message}` });
+          }
+        }
+      }
+
+      await browser.close();
       return { success: true, results };
     } catch (e) {
+      if (browser) await browser.close().catch(() => {});
       return { success: false, error: e.message };
     }
   });
 
-  // 60초마다 자동삭제 체크
-  deleteCheckInterval = setInterval(async () => {
-    const due = store.getDueDeletes();
-    if (due.length > 0) {
-      try {
-        await postDeleter.processDueDeletes(browserManager, auth, (msg) => {
-          mainWindow.webContents.send('execution:log', { accountId: '__system__', msg });
-        });
-      } catch (e) {
-        console.error('자동삭제 체크 오류:', e.message);
-      }
-    }
-  }, 60000);
-
-  // === 실행 (계정별) ===
-  ipcMain.handle('execution:start', async (_e, accountId) => {
-    if (executors.has(accountId) && executors.get(accountId).state === 'running') {
+  // === 실행 (글로벌) ===
+  ipcMain.handle('execution:start', async () => {
+    if (globalExecutor && globalExecutor.state === 'running') {
       return { success: false, error: '이미 실행 중입니다' };
     }
 
-    const account = store.getAccount(accountId);
-    if (!account) return { success: false, error: '계정을 찾을 수 없습니다' };
+    const accounts = store.loadAccounts();
+    const settings = store.loadSettings();
+    const { manuscripts } = store.loadGlobalManuscripts();
 
-    const allAccounts = store.loadAccounts();
-    const executor = new Executor(accountId);
+    globalExecutor = new Executor();
 
-    executor.on('log', (data) => {
+    globalExecutor.on('log', (data) => {
       mainWindow.webContents.send('execution:log', data);
     });
-
-    executor.on('progress', (data) => {
+    globalExecutor.on('progress', (data) => {
       mainWindow.webContents.send('execution:progress', data);
     });
-
-    executor.on('complete', (data) => {
+    globalExecutor.on('complete', (data) => {
       mainWindow.webContents.send('execution:complete', data);
-      executors.delete(accountId);
+      globalExecutor = null;
     });
 
-    executors.set(accountId, executor);
-
-    executor.execute(account, allAccounts).catch(e => {
-      mainWindow.webContents.send('execution:log', { accountId, msg: `실행 오류: ${e.message}` });
-      executors.delete(accountId);
+    globalExecutor.execute(manuscripts, settings, accounts).catch(e => {
+      mainWindow.webContents.send('execution:log', { msg: `실행 오류: ${e.message}` });
+      globalExecutor = null;
     });
 
     return { success: true };
   });
 
-  ipcMain.handle('execution:pause', (_e, accountId) => {
-    const ex = executors.get(accountId);
-    if (ex) { ex.pause(); return { success: true }; }
+  ipcMain.handle('execution:pause', () => {
+    if (globalExecutor) { globalExecutor.pause(); return { success: true }; }
     return { success: false };
   });
 
-  ipcMain.handle('execution:resume', (_e, accountId) => {
-    const ex = executors.get(accountId);
-    if (ex) { ex.resume(); return { success: true }; }
+  ipcMain.handle('execution:resume', () => {
+    if (globalExecutor) { globalExecutor.resume(); return { success: true }; }
     return { success: false };
   });
 
-  ipcMain.handle('execution:stop', (_e, accountId) => {
-    const ex = executors.get(accountId);
-    if (ex) { ex.stop(); executors.delete(accountId); return { success: true }; }
+  ipcMain.handle('execution:stop', () => {
+    if (globalExecutor) { globalExecutor.stop(); globalExecutor = null; return { success: true }; }
     return { success: false };
   });
 
   // === 결과 ===
   ipcMain.handle('results:load-list', () => store.listExecutionLogs());
-
   ipcMain.handle('results:load-detail', (_e, fileName) => store.loadExecutionLog(fileName));
 
   ipcMain.handle('results:export-csv', async (_e, fileName) => {
@@ -253,7 +285,6 @@ function registerHandlers(mainWindow) {
       defaultPath: `${log.executionId}.csv`,
       filters: [{ name: 'CSV', extensions: ['csv'] }],
     });
-
     if (!filePath) return { success: false, cancelled: true };
 
     const fs = require('fs');
@@ -261,9 +292,260 @@ function registerHandlers(mainWindow) {
     const rows = log.results.map(r =>
       `"${r.accountId}","${r.boardName}","${r.postTitle}","${r.postUrl || ''}","${r.status}","${r.timestamp}","${r.ipAtExecution || ''}"`
     ).join('\n');
-
     fs.writeFileSync(filePath, '\uFEFF' + header + rows, 'utf8');
     return { success: true, filePath };
+  });
+
+  // === 좋아요 ===
+  ipcMain.handle('like:fetch-articles', async (_e, accountId, cafeId) => {
+    const cookies = store.loadCookies(accountId);
+    if (!cookies || cookies.length === 0) {
+      return { success: false, error: '저장된 쿠키가 없습니다. 먼저 로그인 테스트를 실행하세요.' };
+    }
+
+    let browser = null;
+    try {
+      browser = await browserManager.launchBrowser();
+      const page = await browserManager.createPage(browser);
+      await page.setCookie(...cookies);
+
+      // 네이버 도메인 진입
+      await page.goto('https://cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await browserManager.delay(1000);
+
+      // memberKey 조회
+      const keyResult = await postLiker.fetchMemberKey(page, cafeId);
+      if (keyResult.error || !keyResult.memberKey) {
+        await browser.close();
+        let errMsg = `memberKey 조회 실패: ${keyResult.error || '찾을 수 없음'}`;
+        if (keyResult.debug) errMsg += '\n응답: ' + keyResult.debug;
+        console.log(errMsg);
+        return { success: false, error: errMsg };
+      }
+      console.log('memberKey:', keyResult.memberKey);
+
+      // 게시글 목록 조회 (최대 50개)
+      const artResult = await postLiker.fetchMemberArticles(page, cafeId, keyResult.memberKey, 1, 50);
+      await browser.close();
+
+      if (artResult.error) {
+        let errMsg = artResult.error;
+        if (artResult.sample) errMsg += '\n응답: ' + artResult.sample;
+        if (artResult.deepKeys) errMsg += '\n키: ' + artResult.deepKeys;
+        console.log('게시글 조회 실패:', errMsg);
+        return { success: false, error: errMsg };
+      }
+
+      return { success: true, articles: artResult.articles, totalCount: artResult.totalCount, memberKey: keyResult.memberKey };
+    } catch (e) {
+      if (browser) await browser.close().catch(() => {});
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('like:execute', async (_e, config) => {
+    // config: { targetArticles: [{articleId, subject, cafeName, cafeId}], likerAccountIds: [], randomMode: boolean, likeCount: number, settings }
+    likeAbortFlag = false;
+    let browser = null;
+
+    try {
+      const allSettings = store.loadSettings();
+      browser = await browserManager.launchBrowser();
+      const page = await browserManager.createPage(browser);
+
+      const { targetArticles, likerAccountIds, randomMode, likeCount } = config;
+
+      // 좋아요 누를 계정 목록 생성
+      let likerQueue = [];
+      if (randomMode) {
+        // 랜덤 모드: likerAccountIds에서 likeCount만큼 랜덤 선택 (중복 허용하지 않음)
+        const shuffled = [...likerAccountIds].sort(() => Math.random() - 0.5);
+        likerQueue = shuffled.slice(0, Math.min(likeCount, shuffled.length));
+      } else {
+        likerQueue = likerAccountIds.slice(0, likeCount);
+      }
+
+      const totalWork = targetArticles.length * likerQueue.length;
+      let done = 0;
+
+      mainWindow.webContents.send('like:log', { msg: `좋아요 시작: ${targetArticles.length}개 게시글 × ${likerQueue.length}개 계정` });
+
+      for (const article of targetArticles) {
+        if (likeAbortFlag) break;
+
+        const articleUrl = `https://cafe.naver.com/${article.cafeName}/${article.articleId}`;
+        mainWindow.webContents.send('like:log', { msg: `게시글: "${article.subject}"` });
+
+        for (const likerId of likerQueue) {
+          if (likeAbortFlag) break;
+
+          const account = store.getAccount(likerId);
+          if (!account) {
+            mainWindow.webContents.send('like:log', { msg: `계정 "${likerId}" 없음, 건너뜀` });
+            done++;
+            mainWindow.webContents.send('like:progress', { current: done, total: totalWork });
+            continue;
+          }
+
+          // IP 변경
+          if (allSettings.ipChange && allSettings.ipChange.enabled) {
+            try {
+              const iface = allSettings.ipChange.interfaceName || null;
+              const newIp = await ipChanger.changeIP(iface);
+              mainWindow.webContents.send('like:log', { msg: `IP 변경: ${newIp || '확인 불가'}` });
+            } catch (e) {
+              mainWindow.webContents.send('like:log', { msg: `IP 변경 실패: ${e.message}` });
+            }
+          }
+
+          // 로그인
+          mainWindow.webContents.send('like:log', { msg: `${likerId} 로그인...` });
+          const loginResult = await auth.loginAccount(page, account.id, account.password);
+          if (!loginResult.success) {
+            mainWindow.webContents.send('like:log', { msg: `${likerId} 로그인 실패` });
+            done++;
+            mainWindow.webContents.send('like:progress', { current: done, total: totalWork });
+            continue;
+          }
+
+          // 좋아요 클릭
+          try {
+            const likeResult = await postLiker.likePost(page, articleUrl);
+            if (likeResult.alreadyLiked) {
+              mainWindow.webContents.send('like:log', { msg: `${likerId}: 이미 좋아요 누름` });
+            } else {
+              mainWindow.webContents.send('like:log', { msg: `${likerId}: 좋아요 완료` });
+            }
+          } catch (e) {
+            mainWindow.webContents.send('like:log', { msg: `${likerId}: 좋아요 실패 - ${e.message}` });
+          }
+
+          done++;
+          mainWindow.webContents.send('like:progress', { current: done, total: totalWork });
+
+          // 계정 간 대기
+          if (!likeAbortFlag) {
+            await browserManager.delay(2000 + Math.random() * 3000);
+          }
+        }
+      }
+
+      await browser.close();
+      mainWindow.webContents.send('like:complete', { success: true });
+      return { success: true };
+    } catch (e) {
+      if (browser) await browser.close().catch(() => {});
+      mainWindow.webContents.send('like:complete', { success: false, error: e.message });
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('like:stop', () => {
+    likeAbortFlag = true;
+    return { success: true };
+  });
+
+  // === 조회수 ===
+  ipcMain.handle('viewcount:load-config', () => store.loadViewCountConfig());
+  ipcMain.handle('viewcount:save-config', (_e, config) => {
+    store.saveViewCountConfig(config);
+    return { success: true };
+  });
+
+  ipcMain.handle('viewcount:execute', async (_e, config) => {
+    // config: { links: [string], totalCount: number }
+    viewCountAbortFlag = false;
+    let browser = null;
+
+    try {
+      browser = await browserManager.launchBrowser();
+
+      const { links, totalCount } = config;
+
+      if (!links || links.length === 0) {
+        mainWindow.webContents.send('viewcount:complete', { success: false, error: '링크가 없습니다.' });
+        return { success: false, error: '링크가 없습니다.' };
+      }
+
+      const totalWork = totalCount * links.length;
+      let done = 0;
+
+      const allSettings = store.loadSettings();
+      const ipEnabled = allSettings.ipChange && allSettings.ipChange.enabled;
+      mainWindow.webContents.send('viewcount:log', { msg: `조회수 시작: ${links.length}개 링크 × ${totalCount}회 = 총 ${totalWork}회` });
+      mainWindow.webContents.send('viewcount:log', { msg: `IP 변경: ${ipEnabled ? 'ON' : 'OFF'} / 비로그인 시크릿 세션 방식` });
+
+      for (let round = 0; round < totalCount; round++) {
+        if (viewCountAbortFlag) break;
+
+        for (let linkIdx = 0; linkIdx < links.length; linkIdx++) {
+          if (viewCountAbortFlag) break;
+
+          const link = links[linkIdx];
+
+          // IP 변경
+          if (ipEnabled) {
+            try {
+              const iface = allSettings.ipChange.interfaceName || null;
+              const newIp = await ipChanger.changeIP(iface);
+              mainWindow.webContents.send('viewcount:log', { msg: `IP 변경: ${newIp || '확인 불가'}` });
+            } catch (e) {
+              mainWindow.webContents.send('viewcount:log', { msg: `IP 변경 실패: ${e.message}` });
+            }
+          }
+
+          let ctx = null;
+          try {
+            // 매 조회마다 새 시크릿 컨텍스트 (완전 격리)
+            ctx = await viewCounter.createIsolatedPage(browser);
+            const { context, page, userAgent } = ctx;
+
+            mainWindow.webContents.send('viewcount:log', {
+              msg: `[${round + 1}/${totalCount}] 새 세션 생성 (UA: ${userAgent.substring(0, 50)}...)`
+            });
+
+            // 비로그인 상태로 링크 접속
+            mainWindow.webContents.send('viewcount:log', { msg: `링크 ${linkIdx + 1}/${links.length} 접속 중...` });
+            const visitResult = await viewCounter.visitLink(page, link);
+            if (visitResult.success) {
+              mainWindow.webContents.send('viewcount:log', { msg: `조회 완료 - ${link.substring(0, 60)}` });
+            } else {
+              mainWindow.webContents.send('viewcount:log', { msg: `조회 실패 - ${visitResult.error}` });
+            }
+
+            // 세션 폐기
+            await viewCounter.destroyContext(context);
+
+          } catch (ctxErr) {
+            mainWindow.webContents.send('viewcount:log', { msg: `세션 오류: ${ctxErr.message}` });
+            if (ctx && ctx.context) await viewCounter.destroyContext(ctx.context);
+          }
+
+          done++;
+          mainWindow.webContents.send('viewcount:progress', { current: done, total: totalWork });
+
+          // 다음 조회까지 대기 (5~10초 — IP 변경 안정화)
+          if (!viewCountAbortFlag && (done < totalWork)) {
+            const waitSec = 5 + Math.random() * 5;
+            mainWindow.webContents.send('viewcount:log', { msg: `${waitSec.toFixed(0)}초 대기...` });
+            await browserManager.delay(waitSec * 1000);
+          }
+        }
+      }
+
+      await browser.close();
+      mainWindow.webContents.send('viewcount:complete', { success: true });
+      return { success: true };
+    } catch (e) {
+      if (browser) await browser.close().catch(() => {});
+      mainWindow.webContents.send('viewcount:complete', { success: false, error: e.message });
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('viewcount:stop', () => {
+    viewCountAbortFlag = true;
+    return { success: true };
   });
 
   // === 유틸 ===
@@ -291,10 +573,10 @@ function cleanup() {
     clearInterval(deleteCheckInterval);
     deleteCheckInterval = null;
   }
-  for (const [, ex] of executors) {
-    ex.stop();
+  if (globalExecutor) {
+    globalExecutor.stop();
+    globalExecutor = null;
   }
-  executors.clear();
 }
 
 module.exports = { registerHandlers, cleanup };

@@ -8,58 +8,390 @@
 </head>
 <body>
   <div class="app">
-    <!-- 사이드바 -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">N Cafe Auto</div>
-      <div class="sidebar-accounts" id="sidebar-accounts"></div>
-      <button class="sidebar-add-btn" id="btn-add-tab">+ 계정 추가</button>
-    </aside>
+    <!-- 헤더 -->
+    <header class="app-header">
+      <span class="app-title">N Cafe Auto</span>
+    </header>
 
-    <main class="main-area">
-      <!-- 전체 실행 바 -->
-      <div class="global-exec-bar" id="global-exec-bar">
-        <div class="global-exec-buttons">
-          <button class="btn btn-primary btn-global-start" id="btn-global-start">전체 시작</button>
-          <button class="btn btn-danger btn-global-stop" id="btn-global-stop" disabled>전체 중지</button>
+    <!-- 탭 네비게이션 -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="settings">설정</button>
+      <button class="tab-btn" data-tab="manuscripts">원고</button>
+      <button class="tab-btn" data-tab="execution">실행</button>
+      <button class="tab-btn" data-tab="delete-manage">삭제</button>
+      <button class="tab-btn" data-tab="like">좋아요</button>
+      <button class="tab-btn" data-tab="viewcount">조회수</button>
+    </nav>
+
+    <!-- 탭 콘텐츠 -->
+    <div class="tab-content">
+
+      <!-- ===== 설정 탭 ===== -->
+      <div class="tab-panel active" data-tab="settings">
+
+        <!-- 계정 관리 -->
+        <div class="section-card">
+          <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+            계정 관리
+            <button id="btn-login-all" class="btn btn-sm btn-primary">전체 로그인 테스트</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr><th>아이디</th><th>비밀번호</th><th>로그인</th><th></th></tr>
+            </thead>
+            <tbody id="accounts-tbody"></tbody>
+          </table>
+          <div style="margin-top:8px;">
+            <div class="form-row" style="gap:8px; align-items:center;">
+              <input type="text" id="new-account-id" class="input" placeholder="아이디" style="width:180px;">
+              <input type="password" id="new-account-pw" class="input" placeholder="비밀번호" style="width:180px;">
+              <button id="btn-add-account" class="btn btn-primary btn-sm">+ 추가</button>
+            </div>
+            <div style="margin-top:8px;">
+              <textarea id="bulk-account-input" class="input" placeholder="엑셀에서 복사 붙여넣기 (아이디[탭]비밀번호, 한 줄에 하나씩)" style="width:100%; height:80px; resize:vertical; font-size:12px;"></textarea>
+              <button id="btn-bulk-add" class="btn btn-primary btn-sm" style="margin-top:4px;">일괄 추가</button>
+              <span id="bulk-add-status" style="font-size:12px; color:#8892b0; margin-left:8px;"></span>
+            </div>
+          </div>
         </div>
-        <div class="global-exec-progress">
-          <span class="global-exec-text" id="global-exec-text">대기 중</span>
+
+        <!-- IP 변경 -->
+        <div class="section-card">
+          <div class="section-title">IP 변경</div>
+          <div class="form-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-ip-change">
+              <span class="toggle-slider"></span>
+              <span class="toggle-text">IP변경</span>
+            </label>
+          </div>
+          <div class="form-row ip-settings" style="margin-top:8px; display:none;">
+            <input type="text" id="iface-input" class="input" placeholder="인터페이스 이름 (자동감지)" style="width:220px;">
+            <button id="btn-check-iface" class="btn btn-sm btn-secondary">인터페이스 확인</button>
+            <button id="btn-test-ip" class="btn btn-sm btn-primary">IP 변경 테스트</button>
+            <span id="ip-status" style="font-size:12px; color:#8892b0;"></span>
+          </div>
+        </div>
+
+        <!-- 랜덤 닉네임 단어 관리 -->
+        <div class="section-card">
+          <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+            랜덤 닉네임 단어 관리
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-sm btn-secondary" id="btn-nick-reset">기본값 복원</button>
+              <button class="btn btn-sm btn-success" id="btn-nick-words-save">단어 저장</button>
+            </div>
+          </div>
+          <div style="display:flex; gap:12px;">
+            <div style="flex:1;">
+              <label style="font-size:12px; color:#8892b0; margin-bottom:4px; display:block;">형용사 (<span id="adj-count">0</span>개) — 한 줄에 하나씩</label>
+              <textarea id="nick-adjectives" class="input" style="width:100%; height:180px; resize:vertical; font-size:12px; line-height:1.5;" placeholder="아련한&#10;나른한&#10;포근한&#10;..."></textarea>
+            </div>
+            <div style="flex:1;">
+              <label style="font-size:12px; color:#8892b0; margin-bottom:4px; display:block;">명사 (<span id="noun-count">0</span>개) — 한 줄에 하나씩</label>
+              <textarea id="nick-nouns" class="input" style="width:100%; height:180px; resize:vertical; font-size:12px; line-height:1.5;" placeholder="느티나무&#10;자작나무&#10;이끼&#10;..."></textarea>
+            </div>
+          </div>
+          <div style="margin-top:6px; font-size:11px; color:#5a6485;">
+            원고에서 "랜덤 닉네임"을 체크하면 [형용사] + [명사] 조합으로 닉네임이 변경됩니다. (예: 포근한느티나무)
+          </div>
+        </div>
+
+        <div style="margin-top:16px; text-align:right;">
+          <button id="btn-save-settings" class="btn btn-success">설정 저장</button>
         </div>
       </div>
 
-      <!-- 서브탭 네비 -->
-      <nav class="subtab-nav" id="subtab-nav" style="display:none;">
-        <button class="subtab-btn active" data-subtab="settings">설정</button>
-        <button class="subtab-btn" data-subtab="manuscripts">원고</button>
-        <button class="subtab-btn" data-subtab="execution">실행</button>
-      </nav>
+      <!-- ===== 원고 탭 ===== -->
+      <div class="tab-panel" data-tab="manuscripts">
 
-      <!-- 탭 콘텐츠 -->
-      <div class="tab-content" id="tab-content">
-        <div class="empty-state" id="empty-state">
-          <p>등록된 계정이 없습니다.</p>
-          <p><strong>+ 계정 추가</strong> 버튼을 눌러 계정을 추가하세요.</p>
+        <!-- 프리셋 -->
+        <div class="section-card preset-section">
+          <div class="section-title">프리셋</div>
+          <div class="form-row" style="gap:8px; align-items:center;">
+            <select class="input" id="preset-select" style="width:220px;">
+              <option value="">프리셋 선택...</option>
+            </select>
+            <button class="btn btn-sm btn-primary" id="btn-preset-load">불러오기</button>
+            <button class="btn btn-sm btn-danger" id="btn-preset-delete">삭제</button>
+            <span style="margin-left:auto;"></span>
+            <input type="text" class="input" id="preset-name-input" placeholder="프리셋 이름" style="width:160px;">
+            <button class="btn btn-sm btn-success" id="btn-preset-save">현재 원고 저장</button>
+          </div>
+        </div>
+
+        <!-- 원고 목록 + 편집기 -->
+        <div class="section-card">
+          <div class="section-title">원고</div>
+          <div class="manuscripts-layout">
+            <div class="ms-list-panel">
+              <div class="ms-list-header">
+                <strong>원고 목록</strong>
+                <button class="btn btn-sm btn-primary" id="btn-add-ms">+ 추가</button>
+              </div>
+              <div class="ms-list" id="ms-list"></div>
+            </div>
+            <div class="ms-editor-panel" id="ms-editor" style="display:none;">
+              <div class="ms-editor-header">
+                <h3>원고 편집</h3>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <button class="btn btn-success btn-sm" id="btn-save-ms-top">원고 저장</button>
+                  <button class="btn btn-danger btn-sm" id="btn-delete-ms-top">삭제</button>
+                  <label class="toggle-label" style="margin-left:8px;">
+                    <input type="checkbox" id="ms-enabled" checked> 활성화
+                  </label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>게시 계정</label>
+                <div class="form-row" style="gap:8px; align-items:center;">
+                  <select class="input" id="ms-account" style="width:200px;"></select>
+                  <label style="cursor:pointer; font-size:12px; white-space:nowrap;">
+                    <input type="checkbox" id="ms-random-nickname"> 랜덤 닉네임
+                  </label>
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom:12px;">
+                <label>카페</label>
+                <div class="form-row" style="gap:8px; align-items:center;">
+                  <select class="input" id="ms-cafe-select" style="flex:1;"></select>
+                  <button class="btn btn-sm btn-secondary" id="btn-ms-fetch-cafes" title="가입 카페 불러오기">새로고침</button>
+                  <button class="btn btn-sm btn-primary" id="btn-ms-crawl">게시판 크롤링</button>
+                  <span id="ms-crawl-status" style="font-size:12px; color:#8892b0;"></span>
+                </div>
+                <input type="hidden" id="ms-cafe-name">
+                <input type="hidden" id="ms-cafe-id">
+              </div>
+              <div class="form-group">
+                <label>게시판</label>
+                <select class="input" id="ms-board" style="width:100%;"></select>
+              </div>
+              <div class="form-group">
+                <label>공개 설정</label>
+                <div class="form-row" style="gap:12px;">
+                  <label style="cursor:pointer;"><input type="radio" name="ms-visibility" value="public" checked> 전체공개</label>
+                  <label style="cursor:pointer;"><input type="radio" name="ms-visibility" value="member"> 멤버공개</label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>게시글 제목</label>
+                <input type="text" class="input" id="ms-title" placeholder="게시글 제목" style="width:100%;">
+              </div>
+              <div class="form-group">
+                <label>본문 (텍스트/이미지 세그먼트)</label>
+                <div class="ms-segments segments-container" id="ms-segments"></div>
+                <div class="form-row" style="margin-top:8px;">
+                  <button class="btn btn-sm btn-secondary" id="btn-add-text-seg">+ 텍스트</button>
+                  <button class="btn btn-sm btn-secondary" id="btn-add-img-seg">+ 이미지</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>댓글 (글 작성 후 자동 댓글)</label>
+                <div id="ms-comments-list" class="ms-comments-list"></div>
+                <button class="btn btn-sm btn-secondary" id="btn-add-ms-comment" style="margin-top:4px;">+ 댓글 추가</button>
+              </div>
+              <div class="form-row" style="margin-top:16px;">
+                <button class="btn btn-success" id="btn-save-ms">원고 저장</button>
+                <button class="btn btn-danger" id="btn-delete-ms">삭제</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </main>
 
-    <!-- 계정 추가 모달 -->
-    <div id="add-account-modal" class="modal" style="display:none;">
-      <div class="modal-content">
-        <h3>계정 추가</h3>
-        <div class="form-group">
-          <label>네이버 아이디</label>
-          <input type="text" id="modal-account-id" class="input" placeholder="아이디" style="width:100%;">
+      <!-- ===== 실행 탭 ===== -->
+      <div class="tab-panel" data-tab="execution">
+        <div class="section-card">
+          <div class="section-title">실행</div>
+          <div class="form-row" style="margin-bottom:12px;">
+            <button class="btn btn-primary" id="btn-exec-start">시작</button>
+            <button class="btn btn-secondary" id="btn-exec-pause" disabled>일시정지</button>
+            <button class="btn btn-secondary" id="btn-exec-resume" disabled>재개</button>
+            <button class="btn btn-danger" id="btn-exec-stop" disabled>중지</button>
+          </div>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="exec-progress-bar" style="width:0%"></div>
+          </div>
+          <div class="progress-text" id="exec-progress-text">대기 중</div>
+          <div class="log-area" id="exec-log"></div>
         </div>
-        <div class="form-group">
-          <label>비밀번호</label>
-          <input type="password" id="modal-account-pw" class="input" placeholder="비밀번호" style="width:100%;">
-        </div>
-        <div class="form-row" style="margin-top:16px; justify-content:flex-end;">
-          <button id="modal-cancel" class="btn btn-secondary">취소</button>
-          <button id="modal-confirm" class="btn btn-primary">추가</button>
+
+        <div class="section-card">
+          <div class="section-title">결과</div>
+          <div class="form-row" style="margin-bottom:8px;">
+            <select class="input" id="result-select" style="width:300px;">
+              <option value="">실행 이력 선택...</option>
+            </select>
+            <button class="btn btn-secondary" id="btn-export-csv">CSV 내보내기</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>계정</th>
+                <th>게시판</th>
+                <th>제목</th>
+                <th>URL</th>
+                <th>상태</th>
+                <th>시간</th>
+                <th>댓글</th>
+              </tr>
+            </thead>
+            <tbody id="results-tbody"></tbody>
+          </table>
         </div>
       </div>
+
+      <!-- ===== 삭제 탭 ===== -->
+      <div class="tab-panel" data-tab="delete-manage">
+        <div class="section-card">
+          <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+            게시글 삭제 관리
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-sm btn-primary" id="btn-delete-selected">선택 삭제</button>
+              <button class="btn btn-sm btn-danger" id="btn-delete-remove-selected">목록에서 제거</button>
+            </div>
+          </div>
+          <div class="form-row" style="margin-bottom:8px; align-items:center; gap:8px;">
+            <label style="font-size:12px; color:#8892b0;">
+              <input type="checkbox" id="delete-select-all"> 전체 선택
+            </label>
+            <span style="flex:1;"></span>
+            <span id="delete-status" style="font-size:12px; color:#8892b0;"></span>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:30px;"></th>
+                <th>계정</th>
+                <th>제목</th>
+                <th>URL</th>
+                <th>게시일</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody id="delete-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ===== 좋아요 탭 ===== -->
+      <div class="tab-panel" data-tab="like">
+        <div class="section-card">
+          <div class="section-title">좋아요 설정</div>
+
+          <!-- 게시글 작성자 계정 + 카페 선택 -->
+          <div class="form-group">
+            <label>게시글 작성자 계정</label>
+            <div class="form-row" style="gap:8px;">
+              <select class="input" id="like-author-account" style="width:200px;">
+                <option value="">계정 선택...</option>
+              </select>
+              <select class="input" id="like-cafe-select" style="flex:1;">
+                <option value="">카페 선택...</option>
+              </select>
+              <button class="btn btn-sm btn-secondary" id="btn-like-fetch-cafes">카페 새로고침</button>
+              <button class="btn btn-sm btn-primary" id="btn-like-fetch-articles">게시글 불러오기</button>
+              <span id="like-fetch-status" style="font-size:12px; color:#8892b0;"></span>
+            </div>
+          </div>
+
+          <!-- 게시글 목록 -->
+          <div class="form-group">
+            <label>게시글 선택 (작성자의 게시글 목록)</label>
+            <div class="like-article-list" id="like-article-list" style="max-height:200px; overflow-y:auto; background:#0d1b2a; border:1px solid #1b2838; border-radius:6px; padding:8px;">
+              <div style="color:#8892b0; font-size:12px;">게시글을 불러와주세요.</div>
+            </div>
+          </div>
+
+          <!-- 좋아요 설정 -->
+          <div class="form-group">
+            <label>좋아요 횟수</label>
+            <input type="number" class="input" id="like-count" value="1" min="1" style="width:100px;">
+            <span style="font-size:12px; color:#8892b0; margin-left:8px;">선택한 각 게시글에 이 횟수만큼 좋아요</span>
+          </div>
+
+          <div class="form-group">
+            <label>좋아요 누를 계정</label>
+            <div class="form-row" style="gap:8px; margin-bottom:8px;">
+              <label style="cursor:pointer; font-size:13px;">
+                <input type="radio" name="like-account-mode" value="random" checked> 랜덤 선택
+              </label>
+              <label style="cursor:pointer; font-size:13px;">
+                <input type="radio" name="like-account-mode" value="manual"> 직접 선택
+              </label>
+              <label style="font-size:12px; color:#8892b0; margin-left:8px;">
+                <input type="checkbox" id="like-select-all-accounts"> 전체 선택
+              </label>
+            </div>
+            <div class="like-account-list" id="like-account-list" style="max-height:150px; overflow-y:auto; background:#0d1b2a; border:1px solid #1b2838; border-radius:6px; padding:8px;">
+            </div>
+          </div>
+        </div>
+
+        <!-- 실행 -->
+        <div class="section-card">
+          <div class="section-title">실행</div>
+          <div class="form-row" style="margin-bottom:12px;">
+            <button class="btn btn-primary" id="btn-like-start">좋아요 시작</button>
+            <button class="btn btn-danger" id="btn-like-stop" disabled>중지</button>
+          </div>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="like-progress-bar" style="width:0%"></div>
+          </div>
+          <div class="progress-text" id="like-progress-text">대기 중</div>
+          <div class="log-area" id="like-log"></div>
+        </div>
+      </div>
+
+      <!-- ===== 조회수 탭 ===== -->
+      <div class="tab-panel" data-tab="viewcount">
+        <div class="section-card">
+          <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+            조회할 링크
+            <button class="btn btn-sm btn-secondary" id="btn-vc-clear-links">전체 삭제</button>
+          </div>
+          <div id="vc-links-list" style="max-height:250px; overflow-y:auto; background:#0d1b2a; border:1px solid #1b2838; border-radius:6px; padding:8px; margin-bottom:8px;">
+            <div style="color:#8892b0; font-size:12px;">등록된 링크가 없습니다.</div>
+          </div>
+          <div class="form-row" style="gap:8px; align-items:center;">
+            <input type="text" id="vc-new-link" class="input" placeholder="https://cafe.naver.com/..." style="flex:1;">
+            <button id="btn-vc-add-link" class="btn btn-primary btn-sm">+ 추가</button>
+          </div>
+          <div style="margin-top:8px;">
+            <textarea id="vc-bulk-links" class="input" placeholder="여러 링크 붙여넣기 (한 줄에 하나씩)" style="width:100%; height:60px; resize:vertical; font-size:12px;"></textarea>
+            <button id="btn-vc-bulk-links" class="btn btn-primary btn-sm" style="margin-top:4px;">일괄 추가</button>
+          </div>
+        </div>
+
+        <div class="section-card">
+          <div class="section-title">조회수 설정</div>
+          <div class="form-group">
+            <label>조회 횟수</label>
+            <div class="form-row" style="gap:8px; align-items:center;">
+              <input type="number" class="input" id="vc-count" value="10" min="1" style="width:120px;">
+              <span style="font-size:12px; color:#8892b0;">각 링크를 이 횟수만큼 조회합니다</span>
+            </div>
+          </div>
+          <div style="font-size:11px; color:#5a6485; margin-top:4px;">
+            방식: 매회 새 시크릿 세션 생성 → 비로그인 접속 → 스크롤 → 15~30초 대기 → 세션 폐기 → 65~80초 대기 (1분 중복 방지)
+          </div>
+        </div>
+
+        <!-- 실행 -->
+        <div class="section-card">
+          <div class="section-title">실행</div>
+          <div class="form-row" style="margin-bottom:12px;">
+            <button class="btn btn-primary" id="btn-vc-start">조회수 시작</button>
+            <button class="btn btn-danger" id="btn-vc-stop" disabled>중지</button>
+          </div>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="vc-progress-bar" style="width:0%"></div>
+          </div>
+          <div class="progress-text" id="vc-progress-text">대기 중</div>
+          <div class="log-area" id="vc-log"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 

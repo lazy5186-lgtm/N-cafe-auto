@@ -1,42 +1,99 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
-  // 계정 CRUD
+  // 계정
   loadAccounts: () => ipcRenderer.invoke('accounts:load'),
   addAccount: (account) => ipcRenderer.invoke('account:add', account),
   updateAccount: (accountId, updates) => ipcRenderer.invoke('account:update', accountId, updates),
   deleteAccount: (accountId) => ipcRenderer.invoke('account:delete', accountId),
+  hasCookies: (accountId) => ipcRenderer.invoke('accounts:has-cookies', accountId),
   loginTest: (accountId) => ipcRenderer.invoke('accounts:login-test', accountId),
 
-  // 크롤링
-  crawlBoards: (cafeId, accountId) => ipcRenderer.invoke('crawl:boards', cafeId, accountId),
-  crawlComments: (postUrl, accountId) => ipcRenderer.invoke('crawl:comments', postUrl, accountId),
+  // 설정 (글로벌)
+  loadSettings: () => ipcRenderer.invoke('settings:load'),
+  saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+
+  // 원고 (글로벌)
+  loadManuscripts: () => ipcRenderer.invoke('manuscripts:load'),
+  saveManuscripts: (data) => ipcRenderer.invoke('manuscripts:save', data),
+
+  // 닉네임 단어
+  loadNicknameWords: () => ipcRenderer.invoke('nickname-words:load'),
+  saveNicknameWords: (data) => ipcRenderer.invoke('nickname-words:save', data),
+
+  // 카페/크롤링
+  fetchJoinedCafes: (accountId) => ipcRenderer.invoke('cafes:joined', accountId),
+  crawlBoards: (cafeName, accountId) => ipcRenderer.invoke('crawl:boards', cafeName, accountId),
 
   // IP
   checkInterface: (interfaceName) => ipcRenderer.invoke('ip:check-interface', interfaceName),
   changeIP: (interfaceName) => ipcRenderer.invoke('ip:change', interfaceName),
 
-  // 자동삭제
+  // 삭제 관리
   loadDeleteSchedule: () => ipcRenderer.invoke('delete-schedule:load'),
-  processDeletes: () => ipcRenderer.invoke('delete-schedule:process'),
+  deletePosts: (postUrls) => ipcRenderer.invoke('delete-schedule:delete-posts', postUrls),
+  removeDeleteEntries: (postUrls) => ipcRenderer.invoke('delete-schedule:remove', postUrls),
 
-  // 실행 (계정별)
-  executionStart: (accountId) => ipcRenderer.invoke('execution:start', accountId),
-  executionPause: (accountId) => ipcRenderer.invoke('execution:pause', accountId),
-  executionResume: (accountId) => ipcRenderer.invoke('execution:resume', accountId),
-  executionStop: (accountId) => ipcRenderer.invoke('execution:stop', accountId),
+  // 실행 (글로벌)
+  executionStart: () => ipcRenderer.invoke('execution:start'),
+  executionPause: () => ipcRenderer.invoke('execution:pause'),
+  executionResume: () => ipcRenderer.invoke('execution:resume'),
+  executionStop: () => ipcRenderer.invoke('execution:stop'),
 
   // 결과
   loadResultsList: () => ipcRenderer.invoke('results:load-list'),
   loadResultDetail: (fileName) => ipcRenderer.invoke('results:load-detail', fileName),
   exportCsv: (fileName) => ipcRenderer.invoke('results:export-csv', fileName),
 
+  // 좋아요
+  fetchMemberArticles: (accountId, cafeId) => ipcRenderer.invoke('like:fetch-articles', accountId, cafeId),
+  executeLikes: (config) => ipcRenderer.invoke('like:execute', config),
+  stopLikes: () => ipcRenderer.invoke('like:stop'),
+
+  onLikeLog: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('like:log', listener);
+    return () => ipcRenderer.removeListener('like:log', listener);
+  },
+  onLikeProgress: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('like:progress', listener);
+    return () => ipcRenderer.removeListener('like:progress', listener);
+  },
+  onLikeComplete: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('like:complete', listener);
+    return () => ipcRenderer.removeListener('like:complete', listener);
+  },
+
+  // 조회수
+  loadViewCountConfig: () => ipcRenderer.invoke('viewcount:load-config'),
+  saveViewCountConfig: (config) => ipcRenderer.invoke('viewcount:save-config', config),
+  executeViewCount: (config) => ipcRenderer.invoke('viewcount:execute', config),
+  stopViewCount: () => ipcRenderer.invoke('viewcount:stop'),
+
+  onViewCountLog: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('viewcount:log', listener);
+    return () => ipcRenderer.removeListener('viewcount:log', listener);
+  },
+  onViewCountProgress: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('viewcount:progress', listener);
+    return () => ipcRenderer.removeListener('viewcount:progress', listener);
+  },
+  onViewCountComplete: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('viewcount:complete', listener);
+    return () => ipcRenderer.removeListener('viewcount:complete', listener);
+  },
+
   // 유틸
   selectImage: () => ipcRenderer.invoke('util:select-image'),
   openExternal: (url) => ipcRenderer.invoke('util:open-external', url),
   getChromePath: () => ipcRenderer.invoke('util:get-chrome-path'),
 
-  // 이벤트 수신 (accountId 포함)
+  // 이벤트 수신
   onExecutionLog: (callback) => {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on('execution:log', listener);
