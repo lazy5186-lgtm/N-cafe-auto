@@ -21,6 +21,7 @@
       <button class="tab-btn" data-tab="delete-manage">삭제</button>
       <button class="tab-btn" data-tab="like">좋아요</button>
       <button class="tab-btn" data-tab="viewcount">조회수</button>
+      <button class="tab-btn" data-tab="shortcuts">단축키</button>
     </nav>
 
     <!-- 탭 콘텐츠 -->
@@ -297,7 +298,13 @@
 
           <!-- 게시글 목록 -->
           <div class="form-group">
-            <label>게시글 선택 (작성자의 게시글 목록)</label>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+              <label style="margin-bottom:0;">게시글 선택 (작성자의 게시글 목록)</label>
+              <div style="display:flex; gap:4px;">
+                <button class="btn btn-sm btn-secondary" id="btn-like-select-all">전체 선택</button>
+                <button class="btn btn-sm btn-secondary" id="btn-like-deselect-all">전체 해제</button>
+              </div>
+            </div>
             <div class="like-article-list" id="like-article-list" style="max-height:200px; overflow-y:auto; background:#0d1b2a; border:1px solid #1b2838; border-radius:6px; padding:8px;">
               <div style="color:#8892b0; font-size:12px;">게시글을 불러와주세요.</div>
             </div>
@@ -389,6 +396,25 @@
           </div>
           <div class="progress-text" id="vc-progress-text">대기 중</div>
           <div class="log-area" id="vc-log"></div>
+        </div>
+      </div>
+
+      <!-- ===== 단축키 탭 ===== -->
+      <div class="tab-panel" data-tab="shortcuts">
+        <div class="section-card">
+          <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+            단축키 설정
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-sm btn-secondary" id="btn-shortcut-reset">기본값 복원</button>
+              <button class="btn btn-sm btn-success" id="btn-shortcut-save">저장</button>
+            </div>
+          </div>
+          <div style="margin-bottom:12px; font-size:12px; color:#8892b0;">
+            각 기능의 활성화/비활성화를 토글하고, "변경" 버튼을 눌러 원하는 키 조합을 입력하세요.
+          </div>
+
+          <!-- 카테고리별 단축키 -->
+          <div id="shortcut-sections"></div>
         </div>
       </div>
 

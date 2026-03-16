@@ -36,6 +36,280 @@ let _removeVcLogListener = null;
 let _removeVcProgressListener = null;
 let _removeVcCompleteListener = null;
 
+// === 단축키 시스템 ===
+const SHORTCUT_DEFS = [
+  // 탭 이동
+  { id: 'tab-settings',    key: 'F1',            label: '설정 탭',       category: '탭 이동' },
+  { id: 'tab-manuscripts', key: 'F2',            label: '원고 탭',       category: '탭 이동' },
+  { id: 'tab-execution',   key: 'F3',            label: '실행 탭',       category: '탭 이동' },
+  { id: 'tab-delete',      key: 'F4',            label: '삭제 탭',       category: '탭 이동' },
+  { id: 'tab-like',        key: 'F5',            label: '좋아요 탭',     category: '탭 이동' },
+  { id: 'tab-viewcount',   key: 'F6',            label: '조회수 탭',     category: '탭 이동' },
+  { id: 'tab-shortcuts',   key: 'F7',            label: '단축키 탭',     category: '탭 이동' },
+  // 실행
+  { id: 'exec-start',      key: 'Ctrl+Enter',    label: '실행 시작',     category: '실행' },
+  { id: 'exec-stop',       key: 'Ctrl+Escape',   label: '실행 중지',     category: '실행' },
+  { id: 'exec-pause',      key: 'Ctrl+P',        label: '실행 일시정지', category: '실행' },
+  { id: 'exec-resume',     key: 'Ctrl+R',        label: '실행 재개',     category: '실행' },
+  // 좋아요
+  { id: 'like-start',      key: 'Ctrl+L',        label: '좋아요 시작',   category: '좋아요' },
+  { id: 'like-stop',       key: 'Ctrl+Shift+L',  label: '좋아요 중지',   category: '좋아요' },
+  // 조회수
+  { id: 'vc-start',        key: 'Ctrl+Shift+V',  label: '조회수 시작',   category: '조회수' },
+  { id: 'vc-stop',         key: 'Ctrl+Shift+X',  label: '조회수 중지',   category: '조회수' },
+  // 설정
+  { id: 'save-settings',   key: 'Ctrl+S',        label: '설정 저장',        category: '설정' },
+  { id: 'ip-toggle',       key: 'Ctrl+Shift+P',  label: 'IP 변경 ON/OFF',  category: '설정' },
+  { id: 'ip-change',       key: 'Ctrl+I',        label: 'IP 변경 테스트',   category: '설정' },
+  { id: 'ip-check-iface',  key: 'Ctrl+Shift+I',  label: '인터페이스 확인',  category: '설정' },
+];
+
+let shortcuts = {}; // { id: { key, label, category, enabled } }
+let _shortcutListening = null;
+
+function loadShortcuts() {
+  const saved = settings.shortcuts || {};
+  shortcuts = {};
+  for (const def of SHORTCUT_DEFS) {
+    const savedItem = saved[def.id];
+    shortcuts[def.id] = {
+      key: (savedItem && savedItem.key) || (typeof savedItem === 'string' ? savedItem : def.key),
+      label: def.label,
+      category: def.category,
+      enabled: savedItem && savedItem.enabled !== undefined ? savedItem.enabled : true,
+    };
+  }
+}
+
+function getShortcutSaveData() {
+  const data = {};
+  for (const [id, sc] of Object.entries(shortcuts)) {
+    data[id] = { key: sc.key, enabled: sc.enabled };
+  }
+  return data;
+}
+
+function keyEventToString(e) {
+  const parts = [];
+  if (e.ctrlKey) parts.push('Ctrl');
+  if (e.shiftKey) parts.push('Shift');
+  if (e.altKey) parts.push('Alt');
+
+  const key = e.key;
+  if (['Control', 'Shift', 'Alt', 'Meta'].includes(key)) return null;
+
+  if (key === ' ') parts.push('Space');
+  else if (key === 'Escape') parts.push('Escape');
+  else if (key === 'Enter') parts.push('Enter');
+  else if (key.startsWith('F') && key.length <= 3 && !isNaN(key.slice(1))) parts.push(key);
+  else if (key.length === 1) parts.push(key.toUpperCase());
+  else parts.push(key);
+
+  return parts.join('+');
+}
+
+function matchShortcut(e, shortcutKey) {
+  if (!shortcutKey) return false;
+  const parts = shortcutKey.split('+');
+  const needCtrl = parts.includes('Ctrl');
+  const needShift = parts.includes('Shift');
+  const needAlt = parts.includes('Alt');
+  const mainKey = parts.filter(p => !['Ctrl', 'Shift', 'Alt'].includes(p)).join('+');
+
+  if (e.ctrlKey !== needCtrl) return false;
+  if (e.shiftKey !== needShift) return false;
+  if (e.altKey !== needAlt) return false;
+
+  const eventKey = e.key === ' ' ? 'Space' : e.key === 'Escape' ? 'Escape' : e.key === 'Enter' ? 'Enter' : (e.key.length === 1 ? e.key.toUpperCase() : e.key);
+  return eventKey === mainKey;
+}
+
+const TAB_MAP = {
+  'tab-settings': 'settings',
+  'tab-manuscripts': 'manuscripts',
+  'tab-execution': 'execution',
+  'tab-delete': 'delete-manage',
+  'tab-like': 'like',
+  'tab-viewcount': 'viewcount',
+  'tab-shortcuts': 'shortcuts',
+};
+
+function executeShortcutAction(actionId) {
+  // 탭 전환
+  if (TAB_MAP[actionId]) {
+    const btn = document.querySelector(`.tab-nav .tab-btn[data-tab="${TAB_MAP[actionId]}"]`);
+    if (btn) btn.click();
+    return;
+  }
+
+  // 버튼 매핑
+  const btnMap = {
+    'exec-start': 'btn-exec-start',
+    'exec-stop': 'btn-exec-stop',
+    'exec-pause': 'btn-exec-pause',
+    'exec-resume': 'btn-exec-resume',
+    'like-start': 'btn-like-start',
+    'like-stop': 'btn-like-stop',
+    'vc-start': 'btn-vc-start',
+    'vc-stop': 'btn-vc-stop',
+    'save-settings': 'btn-save-settings',
+  };
+
+  if (btnMap[actionId]) {
+    const el = document.getElementById(btnMap[actionId]);
+    if (el && !el.disabled) el.click();
+    return;
+  }
+
+  // IP 변경 토글
+  if (actionId === 'ip-toggle') {
+    const toggle = document.getElementById('toggle-ip-change');
+    if (toggle) {
+      toggle.checked = !toggle.checked;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      showToast(`IP 변경: ${toggle.checked ? 'ON' : 'OFF'}`);
+    }
+    return;
+  }
+
+  // IP 변경 테스트
+  if (actionId === 'ip-change') {
+    const btn = document.getElementById('btn-test-ip');
+    if (btn) btn.click();
+    return;
+  }
+
+  // 인터페이스 확인
+  if (actionId === 'ip-check-iface') {
+    const btn = document.getElementById('btn-check-iface');
+    if (btn) btn.click();
+    return;
+  }
+}
+
+function setupShortcutListener() {
+  document.addEventListener('keydown', (e) => {
+    // 키 입력 대기 모드 (단축키 변경 중)
+    if (_shortcutListening) {
+      e.preventDefault();
+      e.stopPropagation();
+      const keyStr = keyEventToString(e);
+      if (!keyStr) return;
+
+      shortcuts[_shortcutListening].key = keyStr;
+      _shortcutListening = null;
+      renderShortcutSections();
+      return;
+    }
+
+    // input/textarea 포커스 시 무시
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    for (const [actionId, sc] of Object.entries(shortcuts)) {
+      if (sc.enabled && matchShortcut(e, sc.key)) {
+        e.preventDefault();
+        executeShortcutAction(actionId);
+        return;
+      }
+    }
+  });
+}
+
+function renderShortcutSections() {
+  const container = document.getElementById('shortcut-sections');
+  container.innerHTML = '';
+
+  // 카테고리별 그룹핑
+  const categories = {};
+  for (const [id, sc] of Object.entries(shortcuts)) {
+    if (!categories[sc.category]) categories[sc.category] = [];
+    categories[sc.category].push({ id, ...sc });
+  }
+
+  for (const [catName, items] of Object.entries(categories)) {
+    const section = document.createElement('div');
+    section.style.cssText = 'margin-bottom:16px;';
+    section.innerHTML = `<div style="font-size:13px; font-weight:600; color:#64ffda; margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid #1b2838;">${catName}</div>`;
+
+    const table = document.createElement('table');
+    table.className = 'data-table';
+    table.innerHTML = '<thead><tr><th style="width:8%;">활성</th><th style="width:32%;">기능</th><th style="width:35%;">단축키</th><th style="width:25%;"></th></tr></thead>';
+    const tbody = document.createElement('tbody');
+
+    for (const item of items) {
+      const tr = document.createElement('tr');
+      const isListening = _shortcutListening === item.id;
+      tr.style.opacity = item.enabled ? '1' : '0.4';
+      tr.innerHTML = `
+        <td>
+          <label class="toggle-switch" style="margin:0;">
+            <input type="checkbox" class="shortcut-toggle" data-id="${item.id}" ${item.enabled ? 'checked' : ''}>
+            <span class="toggle-slider"></span>
+          </label>
+        </td>
+        <td>${item.label}</td>
+        <td>
+          <kbd style="background:#1b2838; padding:3px 10px; border-radius:4px; font-size:12px; color:${isListening ? '#64ffda' : '#ccd6f6'}; border:1px solid ${isListening ? '#64ffda' : '#233554'};">
+            ${isListening ? '키 입력 대기 중...' : item.key}
+          </kbd>
+        </td>
+        <td>
+          <button class="btn btn-sm btn-secondary shortcut-change-btn" data-id="${item.id}">${isListening ? '취소' : '변경'}</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    table.appendChild(tbody);
+    section.appendChild(table);
+    container.appendChild(section);
+  }
+
+  // 이벤트: 활성 토글
+  container.querySelectorAll('.shortcut-toggle').forEach(toggle => {
+    toggle.addEventListener('change', () => {
+      const id = toggle.dataset.id;
+      shortcuts[id].enabled = toggle.checked;
+      renderShortcutSections();
+    });
+  });
+
+  // 이벤트: 변경 버튼
+  container.querySelectorAll('.shortcut-change-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      _shortcutListening = _shortcutListening === id ? null : id;
+      renderShortcutSections();
+    });
+  });
+}
+
+async function saveShortcutSettings() {
+  settings.shortcuts = getShortcutSaveData();
+  await window.api.saveSettings(settings);
+  showToast('단축키 설정이 저장되었습니다.');
+}
+
+function setupShortcuts() {
+  loadShortcuts();
+  renderShortcutSections();
+  setupShortcutListener();
+
+  // 기본값 복원
+  document.getElementById('btn-shortcut-reset').addEventListener('click', () => {
+    for (const def of SHORTCUT_DEFS) {
+      shortcuts[def.id].key = def.key;
+      shortcuts[def.id].enabled = true;
+    }
+    renderShortcutSections();
+    showToast('단축키가 기본값으로 복원되었습니다.');
+  });
+
+  // 저장
+  document.getElementById('btn-shortcut-save').addEventListener('click', saveShortcutSettings);
+}
+
 // === Tab Switching ===
 function setupTabs() {
   document.querySelectorAll('.tab-nav .tab-btn').forEach(btn => {
@@ -244,10 +518,12 @@ function setupSettingsToggles() {
   // 설정 저장
   document.getElementById('btn-save-settings').addEventListener('click', async () => {
     settings = {
+      ...settings,
       ipChange: {
         enabled: ipToggle.checked,
         interfaceName: document.getElementById('iface-input').value.trim(),
       },
+      shortcuts: getShortcutSaveData(),
     };
     await window.api.saveSettings(settings);
     showToast('설정이 저장되었습니다.');
@@ -1057,6 +1333,14 @@ function setupLikeTab() {
     }
   });
 
+  // 전체 선택 / 전체 해제
+  document.getElementById('btn-like-select-all').addEventListener('click', () => {
+    document.querySelectorAll('.like-article-check').forEach(cb => cb.checked = true);
+  });
+  document.getElementById('btn-like-deselect-all').addEventListener('click', () => {
+    document.querySelectorAll('.like-article-check').forEach(cb => cb.checked = false);
+  });
+
   // 카페 새로고침
   document.getElementById('btn-like-fetch-cafes').addEventListener('click', async () => {
     const accountId = authorSelect.value;
@@ -1257,6 +1541,7 @@ async function initApp() {
   renderAccountsTable();
   setupAddAccount();
   setupSettingsToggles();
+  setupShortcuts();
 
   // 원고 탭
   renderMsList();

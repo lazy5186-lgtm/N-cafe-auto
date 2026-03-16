@@ -10,75 +10,42 @@ async function likePost(page, articleUrl) {
   await delay(3000);
 
   // iframe 접근
-  let frame = page;
   const frameHandle = await page.$('#cafe_main');
-  if (frameHandle) {
-    const contentFrame = await frameHandle.contentFrame();
-    if (contentFrame) {
-      frame = contentFrame;
-      console.log('iframe 접근 성공');
-    }
+  if (!frameHandle) {
+    throw new Error('cafe_main iframe을 찾을 수 없습니다');
   }
+  const frame = await frameHandle.contentFrame();
+  if (!frame) {
+    throw new Error('iframe 컨텐츠에 접근할 수 없습니다');
+  }
+  console.log('iframe 접근 성공');
 
-  // 좋아요 버튼 찾기 (여러 셀렉터 시도)
-  const likeSelectors = [
-    '.like_article .u_likeit_list_btn',
-    '.ReactionLikeIt .u_likeit_list_btn',
-    'a[title*="좋아요"]',
-    '.u_likeit_list_btn',
-    '.btn_like',
-    'a.u_likeit_list_btn',
-  ];
+  // 좋아요 버튼 찾기 및 클릭 (동작 확인된 방식)
+  const likeResult = await frame.evaluate(() => {
+    const likeSelectors = [
+      '.like_article .u_likeit_list_btn',
+      '.ReactionLikeIt .u_likeit_list_btn',
+      'a[title*="좋아요"]',
+      '.u_likeit_list_btn',
+    ];
 
-  let clicked = false;
-  for (const sel of likeSelectors) {
-    try {
-      const btn = await frame.$(sel);
-      if (btn) {
-        // 이미 좋아요 눌렀는지 확인
-        const alreadyLiked = await frame.evaluate((selector) => {
-          const el = document.querySelector(selector);
-          if (!el) return false;
-          return el.classList.contains('on') || el.getAttribute('aria-pressed') === 'true';
-        }, sel);
-
-        if (alreadyLiked) {
-          console.log('이미 좋아요를 누른 상태');
-          return { success: true, alreadyLiked: true };
-        }
-
-        await btn.click();
-        clicked = true;
-        console.log(`좋아요 클릭 성공 (${sel})`);
-        break;
+    for (const selector of likeSelectors) {
+      const likeButton = document.querySelector(selector);
+      if (likeButton) {
+        likeButton.click();
+        return { success: true, selector: selector };
       }
-    } catch (e) {
-      console.log(`좋아요 셀렉터 실패 (${sel}): ${e.message}`);
     }
-  }
 
-  if (!clicked) {
-    clicked = await frame.evaluate(() => {
-      const selectors = [
-        '.like_article .u_likeit_list_btn',
-        '.ReactionLikeIt .u_likeit_list_btn',
-        'a[title*="좋아요"]',
-        '.u_likeit_list_btn',
-      ];
-      for (const sel of selectors) {
-        const btn = document.querySelector(sel);
-        if (btn) { btn.click(); return true; }
-      }
-      return false;
-    });
-  }
+    return { success: false, selector: null };
+  });
 
-  if (!clicked) {
+  if (!likeResult.success) {
     throw new Error('좋아요 버튼을 찾을 수 없습니다');
   }
 
+  console.log(`좋아요 클릭 성공 (${likeResult.selector})`);
   await delay(2000);
-  console.log('좋아요 완료');
   return { success: true, alreadyLiked: false };
 }
 

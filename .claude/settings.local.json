@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(gh auth:*)",
+      "Bash(where gh:*)",
+      "Bash(winget install:*)",
+      "Bash(export:*)",
+      "Bash(where git:*)",
+      "Bash(npm install:*)"
+    ]
+  }
+}

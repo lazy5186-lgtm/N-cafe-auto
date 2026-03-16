@@ -300,7 +300,42 @@ function registerHandlers(mainWindow) {
   ipcMain.handle('like:fetch-articles', async (_e, accountId, cafeId) => {
     const cookies = store.loadCookies(accountId);
     if (!cookies || cookies.length === 0) {
-      return { success: false, error: '저장된 쿠키가 없습니다. 먼저 로그인 테스트를 실행하세요.' };
+      // 쿠키 없으면 바로 로그인 시도
+      const account = store.getAccount(accountId);
+      if (!account) return { success: false, error: '계정 정보가 없습니다. 계정을 등록하세요.' };
+
+      let browser = null;
+      try {
+        browser = await browserManager.launchBrowser();
+        const page = await browserManager.createPage(browser);
+        console.log(`${accountId} 쿠키 없음, 직접 로그인 시도...`);
+        const loginResult = await auth.loginAccount(page, account.id, account.password);
+        if (!loginResult.success) {
+          await browser.close();
+          return { success: false, error: '로그인 실패. 계정 정보를 확인하세요.' };
+        }
+        console.log(`${accountId} 로그인 성공`);
+        await page.goto('https://cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await browserManager.delay(1000);
+
+        const keyResult = await postLiker.fetchMemberKey(page, cafeId);
+        if (keyResult.error || !keyResult.memberKey) {
+          await browser.close();
+          return { success: false, error: `memberKey 조회 실패: ${keyResult.error || '찾을 수 없음'}` };
+        }
+        console.log('memberKey:', keyResult.memberKey);
+
+        const artResult = await postLiker.fetchMemberArticles(page, cafeId, keyResult.memberKey, 1, 50);
+        await browser.close();
+
+        if (artResult.error) {
+          return { success: false, error: artResult.error };
+        }
+        return { success: true, articles: artResult.articles, totalCount: artResult.totalCount, memberKey: keyResult.memberKey };
+      } catch (e) {
+        if (browser) await browser.close().catch(() => {});
+        return { success: false, error: e.message };
+      }
     }
 
     let browser = null;
@@ -314,7 +349,23 @@ function registerHandlers(mainWindow) {
       await browserManager.delay(1000);
 
       // memberKey 조회
-      const keyResult = await postLiker.fetchMemberKey(page, cafeId);
+      let keyResult = await postLiker.fetchMemberKey(page, cafeId);
+
+      // memberKey 실패 시 (쿠키 만료) → 재로그인 후 재시도
+      if (keyResult.error || !keyResult.memberKey) {
+        console.log(`${accountId} memberKey 조회 실패, 재로그인 시도...`);
+        const account = store.getAccount(accountId);
+        if (account) {
+          const loginResult = await auth.loginAccount(page, account.id, account.password);
+          if (loginResult.success) {
+            console.log(`${accountId} 재로그인 성공 (${loginResult.method})`);
+            await page.goto('https://cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+            await browserManager.delay(1000);
+            keyResult = await postLiker.fetchMemberKey(page, cafeId);
+          }
+        }
+      }
+
       if (keyResult.error || !keyResult.memberKey) {
         await browser.close();
         let errMsg = `memberKey 조회 실패: ${keyResult.error || '찾을 수 없음'}`;

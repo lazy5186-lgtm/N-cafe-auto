@@ -296,6 +296,60 @@ async function crawlBoards(page, cafeId, cafeName) {
  * 계정의 쿠키를 이용해 가입한 카페 목록을 가져옴
  * Puppeteer 브라우저 내에서 fetch()로 호출 (실제 브라우저 요청과 동일)
  */
+async function fetchJoinedCafesFromPage(page) {
+  return await page.evaluate(async () => {
+    try {
+      const res = await fetch('https://apis.naver.com/cafe-home-web/cafe-home/v1/cafes/join?perPage=300', {
+        method: 'GET',
+        headers: {
+          'accept': 'application/json, text/plain, */*',
+          'x-cafe-product': 'mweb',
+        },
+        credentials: 'include',
+      });
+
+      if (!res.ok) return { error: `HTTP ${res.status}` };
+
+      const json = await res.json();
+
+      // 500 에러 (로그인 안됨 등) 체크
+      if (json.message && json.message.status === '500') {
+        const errMsg = json.message.error ? json.message.error.msg : '서버 오류';
+        return { error: errMsg, needLogin: true };
+      }
+
+      // 응답 구조 탐색
+      let cafeList = null;
+      if (json.message && json.message.result) {
+        cafeList = json.message.result.cafeList || json.message.result.cafes;
+      }
+      if (!cafeList && json.result) {
+        cafeList = json.result.cafeList || json.result.cafes;
+      }
+      if (!cafeList && json.data) {
+        cafeList = json.data.cafeList || json.data.cafes || json.data;
+      }
+      if (!cafeList && Array.isArray(json)) {
+        cafeList = json;
+      }
+
+      if (!Array.isArray(cafeList)) {
+        return { error: '카페 목록을 찾을 수 없습니다', keys: Object.keys(json).join(','), sample: JSON.stringify(json).substring(0, 300) };
+      }
+
+      return {
+        cafes: cafeList.map(cafe => ({
+          cafeId: String(cafe.cafeId || cafe.id || ''),
+          cafeName: cafe.cafeUrl || cafe.url || cafe.cafeSlug || cafe.cafeUri || '',
+          cafeTitle: cafe.cafeName || cafe.name || cafe.title || cafe.cafeTitle || '',
+        })).filter(c => c.cafeId),
+      };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+}
+
 async function fetchJoinedCafes(accountId) {
   const cookies = store.loadCookies(accountId);
   if (!cookies || cookies.length === 0) {
@@ -303,6 +357,7 @@ async function fetchJoinedCafes(accountId) {
   }
 
   const browserManager = require('./browser-manager');
+  const auth = require('./auth');
   let browser = null;
 
   try {
@@ -314,52 +369,29 @@ async function fetchJoinedCafes(accountId) {
     await page.goto('https://m.cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
     await delay(1000);
 
-    // 브라우저 내에서 fetch API 호출
-    const result = await page.evaluate(async () => {
-      try {
-        const res = await fetch('https://apis.naver.com/cafe-home-web/cafe-home/v1/cafes/join?perPage=300', {
-          method: 'GET',
-          headers: {
-            'accept': 'application/json, text/plain, */*',
-            'x-cafe-product': 'mweb',
-          },
-          credentials: 'include',
-        });
+    // 1차 시도: 쿠키로 API 호출
+    let result = await fetchJoinedCafesFromPage(page);
 
-        if (!res.ok) return { error: `HTTP ${res.status}` };
-
-        const json = await res.json();
-
-        // 응답 구조 탐색
-        let cafeList = null;
-        if (json.message && json.message.result) {
-          cafeList = json.message.result.cafeList || json.message.result.cafes;
+    // 쿠키 만료 시 자동 재로그인 후 재시도
+    if (result.needLogin || (result.error && result.error.includes('로그인'))) {
+      console.log(`쿠키 만료, ${accountId} 재로그인 시도...`);
+      const account = store.getAccount(accountId);
+      if (account) {
+        const loginResult = await auth.loginAccount(page, account.id, account.password);
+        if (loginResult.success) {
+          console.log(`${accountId} 재로그인 성공 (${loginResult.method})`);
+          await page.goto('https://m.cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
+          await delay(1000);
+          result = await fetchJoinedCafesFromPage(page);
+        } else {
+          await browser.close();
+          throw new Error('쿠키 만료 및 재로그인 실패. 로그인 테스트를 다시 실행하세요.');
         }
-        if (!cafeList && json.result) {
-          cafeList = json.result.cafeList || json.result.cafes;
-        }
-        if (!cafeList && json.data) {
-          cafeList = json.data.cafeList || json.data.cafes || json.data;
-        }
-        if (!cafeList && Array.isArray(json)) {
-          cafeList = json;
-        }
-
-        if (!Array.isArray(cafeList)) {
-          return { error: '카페 목록을 찾을 수 없습니다', keys: Object.keys(json).join(','), sample: JSON.stringify(json).substring(0, 300) };
-        }
-
-        return {
-          cafes: cafeList.map(cafe => ({
-            cafeId: String(cafe.cafeId || cafe.id || ''),
-            cafeName: cafe.cafeUrl || cafe.url || cafe.cafeSlug || cafe.cafeUri || '',
-            cafeTitle: cafe.cafeName || cafe.name || cafe.title || cafe.cafeTitle || '',
-          })).filter(c => c.cafeId),
-        };
-      } catch (e) {
-        return { error: e.message };
+      } else {
+        await browser.close();
+        throw new Error('쿠키 만료. 계정 정보를 찾을 수 없어 재로그인 불가.');
       }
-    });
+    }
 
     await browser.close();
 
