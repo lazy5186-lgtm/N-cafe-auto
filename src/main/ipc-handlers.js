@@ -513,7 +513,7 @@ function registerHandlers(mainWindow) {
   ipcMain.handle('util:select-image', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openFile'],
-      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'] }],
+      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'jpe', 'jfif', 'pjpeg', 'png', 'apng', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'ico', 'svg', 'svgz', 'heic', 'heif', 'avif', 'jxl', 'xbm', 'pip'] }],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
