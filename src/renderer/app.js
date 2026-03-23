@@ -463,19 +463,33 @@ function setupAddAccount() {
 function setupSettingsToggles() {
   const ipToggle = document.getElementById('toggle-ip-change');
   const ipSettings = document.querySelector('.ip-settings');
+  const methodSelect = document.getElementById('ip-method-select');
+  const netshPanel = document.getElementById('ip-netsh-panel');
+  const adbPanel = document.getElementById('ip-adb-panel');
 
   ipToggle.checked = settings.ipChange && settings.ipChange.enabled;
-  ipSettings.style.display = ipToggle.checked ? 'flex' : 'none';
+  ipSettings.style.display = ipToggle.checked ? 'block' : 'none';
+
+  // 방식 로드
+  const method = (settings.ipChange && settings.ipChange.method) || 'netsh';
+  methodSelect.value = method;
+  netshPanel.style.display = method === 'netsh' ? 'flex' : 'none';
+  adbPanel.style.display = method === 'adb' ? 'flex' : 'none';
 
   if (settings.ipChange && settings.ipChange.interfaceName) {
     document.getElementById('iface-input').value = settings.ipChange.interfaceName;
   }
 
   ipToggle.addEventListener('change', () => {
-    ipSettings.style.display = ipToggle.checked ? 'flex' : 'none';
+    ipSettings.style.display = ipToggle.checked ? 'block' : 'none';
   });
 
-  // IP 버튼
+  methodSelect.addEventListener('change', () => {
+    netshPanel.style.display = methodSelect.value === 'netsh' ? 'flex' : 'none';
+    adbPanel.style.display = methodSelect.value === 'adb' ? 'flex' : 'none';
+  });
+
+  // === netsh 버튼 ===
   document.getElementById('btn-check-iface').addEventListener('click', async () => {
     const ifaceName = document.getElementById('iface-input').value.trim();
     const statusEl = document.getElementById('ip-status');
@@ -491,11 +505,39 @@ function setupSettingsToggles() {
   });
 
   document.getElementById('btn-test-ip').addEventListener('click', async () => {
-    const ifaceName = document.getElementById('iface-input').value.trim();
     const statusEl = document.getElementById('ip-status');
     statusEl.textContent = 'IP 변경 중...';
     statusEl.style.color = '#ffa726';
-    const result = await window.api.changeIP(ifaceName || null);
+    const result = await window.api.changeIP(null);
+    if (result.success) {
+      statusEl.textContent = `새 IP: ${result.ip || '확인 불가'}`;
+      statusEl.style.color = '#66bb6a';
+    } else {
+      statusEl.textContent = `실패: ${result.error}`;
+      statusEl.style.color = '#ef5350';
+    }
+  });
+
+  // === ADB 버튼 ===
+  document.getElementById('btn-check-adb').addEventListener('click', async () => {
+    const statusEl = document.getElementById('adb-status');
+    statusEl.textContent = '확인 중...';
+    statusEl.style.color = '#ffa726';
+    const result = await window.api.checkAdbDevice(null);
+    if (result.success) {
+      statusEl.textContent = `연결됨: ${result.model || result.serial}`;
+      statusEl.style.color = '#66bb6a';
+    } else {
+      statusEl.textContent = result.error;
+      statusEl.style.color = '#ef5350';
+    }
+  });
+
+  document.getElementById('btn-test-adb').addEventListener('click', async () => {
+    const statusEl = document.getElementById('adb-status');
+    statusEl.textContent = 'IP 변경 중 (~11초)...';
+    statusEl.style.color = '#ffa726';
+    const result = await window.api.changeIP(null);
     if (result.success) {
       statusEl.textContent = `새 IP: ${result.ip || '확인 불가'}`;
       statusEl.style.color = '#66bb6a';
@@ -511,7 +553,9 @@ function setupSettingsToggles() {
       ...settings,
       ipChange: {
         enabled: ipToggle.checked,
+        method: methodSelect.value,
         interfaceName: document.getElementById('iface-input').value.trim(),
+        adb: {},
       },
       shortcuts: getShortcutSaveData(),
     };

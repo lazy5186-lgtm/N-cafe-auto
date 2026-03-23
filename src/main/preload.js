@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('api', {
   checkInterface: (interfaceName) => ipcRenderer.invoke('ip:check-interface', interfaceName),
   changeIP: (interfaceName) => ipcRenderer.invoke('ip:change', interfaceName),
 
+  // ADB
+  checkAdbDevice: (deviceId) => ipcRenderer.invoke('adb:check-device', deviceId),
+
   // 삭제 관리
   loadDeleteSchedule: () => ipcRenderer.invoke('delete-schedule:load'),
   deletePosts: (postUrls) => ipcRenderer.invoke('delete-schedule:delete-posts', postUrls),

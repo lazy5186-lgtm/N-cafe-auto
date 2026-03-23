@@ -5,6 +5,7 @@ const browserManager = require('./core/browser-manager');
 const auth = require('./core/auth');
 const crawl = require('./core/crawl');
 const ipChanger = require('./core/ip-changer');
+const adbHelper = require('./core/adb-helper');
 const postDeleter = require('./core/post-deleter');
 const commentWriter = require('./core/comment-writer');
 const postLiker = require('./core/post-liker');
@@ -143,6 +144,16 @@ function registerHandlers(mainWindow) {
     try {
       const newIp = await ipChanger.changeIP(interfaceName || null);
       return { success: true, ip: newIp };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // === ADB ===
+  ipcMain.handle('adb:check-device', async (_e, deviceId) => {
+    try {
+      const status = await adbHelper.checkDeviceStatus(deviceId || null);
+      return { success: true, ...status };
     } catch (e) {
       return { success: false, error: e.message };
     }

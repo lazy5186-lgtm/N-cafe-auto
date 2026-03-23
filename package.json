@@ -1,6 +1,6 @@
 {
   "name": "n-cafe-auto",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "description": "네이버 카페 자동 등록 Electron 앱",
   "main": "src/main/index.js",
   "scripts": {
@@ -25,6 +25,13 @@
     "files": [
       "src/**/*",
       "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/adb",
+        "to": "adb",
+        "filter": ["adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll"]
+      }
     ],
     "publish": {
       "provider": "github",
