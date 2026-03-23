@@ -29,6 +29,7 @@ function createWindow() {
 
 // --- 자동 업데이트 ---
 function setupAutoUpdater() {
+  autoUpdater.requestHeaders = { Authorization: 'token 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' };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
