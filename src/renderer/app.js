@@ -1528,10 +1528,6 @@ async function setupVersionAndUpdate() {
     const result = await window.api.checkForUpdate();
     if (result.hasUpdate) {
       btn.textContent = `v${result.version} 다운로드 중...`;
-    } else if (result.error) {
-      showToast('업데이트 확인 실패: ' + result.error);
-      btn.disabled = false;
-      btn.textContent = '업데이트 확인';
     } else {
       showToast('최신 버전입니다.');
       btn.disabled = false;
