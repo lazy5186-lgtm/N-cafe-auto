@@ -44,19 +44,28 @@ function registerHandlers(mainWindow) {
     return !!(cookies && cookies.length > 0);
   });
 
+  // IP 변경 헬퍼 (상태를 renderer로 전송)
+  async function changeIPWithStatus(label) {
+    const s = store.loadSettings();
+    if (!(s.ipChange && s.ipChange.enabled)) return null;
+    mainWindow.webContents.send('ip:status', { msg: `${label} — IP 변경 중...` });
+    try {
+      const newIp = await ipChanger.changeIP(null);
+      mainWindow.webContents.send('ip:status', { msg: `${label} — IP: ${newIp || '확인 불가'}` });
+      return newIp;
+    } catch (e) {
+      mainWindow.webContents.send('ip:status', { msg: `${label} — IP 변경 실패` });
+      return null;
+    }
+  }
+
   ipcMain.handle('accounts:login-test', async (_e, accountId) => {
     const account = store.getAccount(accountId);
     if (!account) return { success: false, error: '계정을 찾을 수 없습니다' };
 
     let browser = null;
     try {
-      // IP 변경 (설정 ON일 때)
-      const settings = store.loadSettings();
-      if (settings.ipChange && settings.ipChange.enabled) {
-        try {
-          await ipChanger.changeIP(null);
-        } catch (e) { /* ignore */ }
-      }
+      await changeIPWithStatus(`로그인 테스트 (${accountId})`);
 
       browser = await browserManager.launchBrowser();
       const page = await browserManager.createPage(browser);
@@ -107,14 +116,7 @@ function registerHandlers(mainWindow) {
   // === 가입 카페 목록 ===
   ipcMain.handle('cafes:joined', async (_e, accountId) => {
     try {
-      // IP 변경 (설정 ON일 때)
-      const settings = store.loadSettings();
-      if (settings.ipChange && settings.ipChange.enabled) {
-        try {
-          await ipChanger.changeIP(null);
-        } catch (e) { /* ignore */ }
-      }
-
+      await changeIPWithStatus(`카페 목록 (${accountId})`);
       const cafes = await crawl.fetchJoinedCafes(accountId);
       return { success: true, cafes };
     } catch (e) {
@@ -324,13 +326,7 @@ function registerHandlers(mainWindow) {
 
   // === 좋아요 ===
   ipcMain.handle('like:fetch-articles', async (_e, accountId, cafeId) => {
-    // IP 변경 (설정 ON일 때)
-    const likeSettings = store.loadSettings();
-    if (likeSettings.ipChange && likeSettings.ipChange.enabled) {
-      try {
-        await ipChanger.changeIP(null);
-      } catch (e) { /* ignore */ }
-    }
+    await changeIPWithStatus(`게시글 불러오기 (${accountId})`);
 
     const cookies = store.loadCookies(accountId);
     if (!cookies || cookies.length === 0) {

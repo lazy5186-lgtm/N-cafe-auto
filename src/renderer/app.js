@@ -482,6 +482,15 @@ function setupAddAccount() {
 
 
 function setupSettingsToggles() {
+  // IP 상태 이벤트 수신
+  window.api.onIpStatus((data) => {
+    const statusEl = document.getElementById('adb-status');
+    if (statusEl) {
+      statusEl.textContent = data.msg;
+      statusEl.style.color = data.msg.includes('실패') ? '#ef5350' : '#ffa726';
+    }
+  });
+
   // 헤드리스 모드
   const headlessToggle = document.getElementById('toggle-headless');
   headlessToggle.checked = settings.headless || false;

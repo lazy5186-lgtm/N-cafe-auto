@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ADB
   checkAdbDevice: (deviceId) => ipcRenderer.invoke('adb:check-device', deviceId),
+  onIpStatus: (cb) => { ipcRenderer.on('ip:status', (_e, d) => cb(d)); },
 
   // 삭제 관리
   loadDeleteSchedule: () => ipcRenderer.invoke('delete-schedule:load'),
