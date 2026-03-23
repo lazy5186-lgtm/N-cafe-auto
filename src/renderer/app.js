@@ -55,6 +55,7 @@ const SHORTCUT_DEFS = [
   { id: 'ip-toggle',       key: 'Ctrl+Shift+P',  label: 'IP 변경 ON/OFF',  category: '설정' },
   { id: 'ip-change',       key: 'Ctrl+I',        label: 'IP 변경 테스트',   category: '설정' },
   { id: 'ip-check-iface',  key: 'Ctrl+Shift+I',  label: '인터페이스 확인',  category: '설정' },
+  { id: 'adb-check',       key: 'Ctrl+Shift+A',  label: 'ADB 기기 확인',   category: '설정' },
 ];
 
 let shortcuts = {}; // { id: { key, label, category, enabled } }
@@ -172,6 +173,13 @@ function executeShortcutAction(actionId) {
   // 인터페이스 확인
   if (actionId === 'ip-check-iface') {
     const btn = document.getElementById('btn-check-iface');
+    if (btn) btn.click();
+    return;
+  }
+
+  // ADB 기기 확인
+  if (actionId === 'adb-check') {
+    const btn = document.getElementById('btn-check-adb');
     if (btn) btn.click();
     return;
   }
