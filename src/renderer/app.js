@@ -32,9 +32,6 @@ let _removeCompleteListener = null;
 let _removeLikeLogListener = null;
 let _removeLikeProgressListener = null;
 let _removeLikeCompleteListener = null;
-let _removeVcLogListener = null;
-let _removeVcProgressListener = null;
-let _removeVcCompleteListener = null;
 
 // === 단축키 시스템 ===
 const SHORTCUT_DEFS = [
@@ -44,8 +41,7 @@ const SHORTCUT_DEFS = [
   { id: 'tab-execution',   key: 'F3',            label: '실행 탭',       category: '탭 이동' },
   { id: 'tab-delete',      key: 'F4',            label: '삭제 탭',       category: '탭 이동' },
   { id: 'tab-like',        key: 'F5',            label: '좋아요 탭',     category: '탭 이동' },
-  { id: 'tab-viewcount',   key: 'F6',            label: '조회수 탭',     category: '탭 이동' },
-  { id: 'tab-shortcuts',   key: 'F7',            label: '단축키 탭',     category: '탭 이동' },
+  { id: 'tab-shortcuts',   key: 'F6',            label: '단축키 탭',     category: '탭 이동' },
   // 실행
   { id: 'exec-start',      key: 'Ctrl+Enter',    label: '실행 시작',     category: '실행' },
   { id: 'exec-stop',       key: 'Ctrl+Escape',   label: '실행 중지',     category: '실행' },
@@ -54,9 +50,6 @@ const SHORTCUT_DEFS = [
   // 좋아요
   { id: 'like-start',      key: 'Ctrl+L',        label: '좋아요 시작',   category: '좋아요' },
   { id: 'like-stop',       key: 'Ctrl+Shift+L',  label: '좋아요 중지',   category: '좋아요' },
-  // 조회수
-  { id: 'vc-start',        key: 'Ctrl+Shift+V',  label: '조회수 시작',   category: '조회수' },
-  { id: 'vc-stop',         key: 'Ctrl+Shift+X',  label: '조회수 중지',   category: '조회수' },
   // 설정
   { id: 'save-settings',   key: 'Ctrl+S',        label: '설정 저장',        category: '설정' },
   { id: 'ip-toggle',       key: 'Ctrl+Shift+P',  label: 'IP 변경 ON/OFF',  category: '설정' },
@@ -130,7 +123,6 @@ const TAB_MAP = {
   'tab-execution': 'execution',
   'tab-delete': 'delete-manage',
   'tab-like': 'like',
-  'tab-viewcount': 'viewcount',
   'tab-shortcuts': 'shortcuts',
 };
 
@@ -150,8 +142,6 @@ function executeShortcutAction(actionId) {
     'exec-resume': 'btn-exec-resume',
     'like-start': 'btn-like-start',
     'like-stop': 'btn-like-stop',
-    'vc-start': 'btn-vc-start',
-    'vc-stop': 'btn-vc-stop',
     'save-settings': 'btn-save-settings',
   };
 
@@ -1558,157 +1548,6 @@ async function initApp() {
   // 좋아요 탭
   setupLikeTab();
 
-  // 조회수 탭
-  setupViewCountTab();
-}
-
-// =============================================
-// 조회수 탭
-// =============================================
-
-let _vcLinks = [];
-
-function renderVcLinks() {
-  const container = document.getElementById('vc-links-list');
-  if (_vcLinks.length === 0) {
-    container.innerHTML = '<div style="color:#8892b0; font-size:12px;">등록된 링크가 없습니다.</div>';
-    return;
-  }
-  container.innerHTML = '';
-  _vcLinks.forEach((link, i) => {
-    const div = document.createElement('div');
-    div.style.cssText = 'display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #1b2838;';
-    div.innerHTML = `
-      <span style="font-size:12px; color:#8892b0; min-width:24px;">${i + 1}.</span>
-      <a href="#" class="vc-link-url" data-url="${link}" style="flex:1; font-size:12px; color:#64ffda; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${link}</a>
-      <button class="btn btn-sm btn-danger vc-del-link" data-index="${i}" style="padding:2px 8px; font-size:11px;">삭제</button>
-    `;
-    container.appendChild(div);
-  });
-
-  container.querySelectorAll('.vc-link-url').forEach(a => {
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      window.api.openExternal(a.dataset.url);
-    });
-  });
-
-  container.querySelectorAll('.vc-del-link').forEach(btn => {
-    btn.addEventListener('click', () => {
-      _vcLinks.splice(parseInt(btn.dataset.index), 1);
-      renderVcLinks();
-      saveVcConfig();
-    });
-  });
-}
-
-function saveVcConfig() {
-  window.api.saveViewCountConfig({ links: _vcLinks });
-}
-
-function appendVcLog(msg, type) {
-  const logArea = document.getElementById('vc-log');
-  const div = document.createElement('div');
-  div.className = 'log-entry' + (type ? ' ' + type : '');
-  const time = new Date().toLocaleTimeString('ko-KR');
-  div.textContent = `[${time}] ${msg}`;
-  logArea.appendChild(div);
-  logArea.scrollTop = logArea.scrollHeight;
-}
-
-async function setupViewCountTab() {
-  // 설정 로드
-  const config = await window.api.loadViewCountConfig();
-  _vcLinks = config.links || [];
-
-  renderVcLinks();
-
-  // 링크 추가
-  document.getElementById('btn-vc-add-link').addEventListener('click', () => {
-    const link = document.getElementById('vc-new-link').value.trim();
-    if (!link) return showToast('링크를 입력하세요.');
-    if (_vcLinks.includes(link)) return showToast('이미 등록된 링크입니다.');
-    _vcLinks.push(link);
-    document.getElementById('vc-new-link').value = '';
-    renderVcLinks();
-    saveVcConfig();
-  });
-
-  // 링크 일괄 추가
-  document.getElementById('btn-vc-bulk-links').addEventListener('click', () => {
-    const text = document.getElementById('vc-bulk-links').value.trim();
-    if (!text) return showToast('붙여넣기할 내용이 없습니다.');
-    const lines = text.split('\n').filter(l => l.trim());
-    let added = 0;
-    for (const line of lines) {
-      const link = line.trim();
-      if (link && !_vcLinks.includes(link)) {
-        _vcLinks.push(link);
-        added++;
-      }
-    }
-    document.getElementById('vc-bulk-links').value = '';
-    renderVcLinks();
-    saveVcConfig();
-    showToast(`${added}개 링크 추가됨`);
-  });
-
-  // 링크 전체 삭제
-  document.getElementById('btn-vc-clear-links').addEventListener('click', () => {
-    if (_vcLinks.length === 0) return;
-    if (!confirm('모든 링크를 삭제하시겠습니까?')) return;
-    _vcLinks = [];
-    renderVcLinks();
-    saveVcConfig();
-  });
-
-  // 시작
-  document.getElementById('btn-vc-start').addEventListener('click', async () => {
-    if (_vcLinks.length === 0) return showToast('조회할 링크를 등록하세요.');
-
-    const totalCount = parseInt(document.getElementById('vc-count').value) || 10;
-
-    document.getElementById('vc-log').innerHTML = '';
-    document.getElementById('vc-progress-bar').style.width = '0%';
-    document.getElementById('vc-progress-text').textContent = '시작 중...';
-    document.getElementById('btn-vc-start').disabled = true;
-    document.getElementById('btn-vc-stop').disabled = false;
-
-    await window.api.executeViewCount({
-      links: _vcLinks,
-      totalCount,
-    });
-  });
-
-  // 중지
-  document.getElementById('btn-vc-stop').addEventListener('click', async () => {
-    await window.api.stopViewCount();
-    document.getElementById('btn-vc-start').disabled = false;
-    document.getElementById('btn-vc-stop').disabled = true;
-    appendVcLog('중지됨', 'error');
-  });
-
-  // 이벤트 리스너
-  if (_removeVcLogListener) _removeVcLogListener();
-  if (_removeVcProgressListener) _removeVcProgressListener();
-  if (_removeVcCompleteListener) _removeVcCompleteListener();
-
-  _removeVcLogListener = window.api.onViewCountLog((data) => {
-    appendVcLog(data.msg);
-  });
-
-  _removeVcProgressListener = window.api.onViewCountProgress((data) => {
-    const percent = data.total > 0 ? Math.round((data.current / data.total) * 100) : 0;
-    document.getElementById('vc-progress-bar').style.width = percent + '%';
-    document.getElementById('vc-progress-text').textContent = `${data.current} / ${data.total} (${percent}%)`;
-  });
-
-  _removeVcCompleteListener = window.api.onViewCountComplete(() => {
-    document.getElementById('btn-vc-start').disabled = false;
-    document.getElementById('btn-vc-stop').disabled = true;
-    appendVcLog('완료', 'success');
-    document.getElementById('vc-progress-bar').style.width = '100%';
-  });
 }
 
 // =============================================

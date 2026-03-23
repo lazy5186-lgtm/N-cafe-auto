@@ -66,28 +66,6 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('like:complete', listener);
   },
 
-  // 조회수
-  loadViewCountConfig: () => ipcRenderer.invoke('viewcount:load-config'),
-  saveViewCountConfig: (config) => ipcRenderer.invoke('viewcount:save-config', config),
-  executeViewCount: (config) => ipcRenderer.invoke('viewcount:execute', config),
-  stopViewCount: () => ipcRenderer.invoke('viewcount:stop'),
-
-  onViewCountLog: (callback) => {
-    const listener = (_event, data) => callback(data);
-    ipcRenderer.on('viewcount:log', listener);
-    return () => ipcRenderer.removeListener('viewcount:log', listener);
-  },
-  onViewCountProgress: (callback) => {
-    const listener = (_event, data) => callback(data);
-    ipcRenderer.on('viewcount:progress', listener);
-    return () => ipcRenderer.removeListener('viewcount:progress', listener);
-  },
-  onViewCountComplete: (callback) => {
-    const listener = (_event, data) => callback(data);
-    ipcRenderer.on('viewcount:complete', listener);
-    return () => ipcRenderer.removeListener('viewcount:complete', listener);
-  },
-
   // 유틸
   selectImage: () => ipcRenderer.invoke('util:select-image'),
   openExternal: (url) => ipcRenderer.invoke('util:open-external', url),

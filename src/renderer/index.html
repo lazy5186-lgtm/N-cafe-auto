@@ -20,7 +20,6 @@
       <button class="tab-btn" data-tab="execution">실행</button>
       <button class="tab-btn" data-tab="delete-manage">삭제</button>
       <button class="tab-btn" data-tab="like">좋아요</button>
-      <button class="tab-btn" data-tab="viewcount">조회수</button>
       <button class="tab-btn" data-tab="shortcuts">단축키</button>
     </nav>
 
@@ -347,55 +346,6 @@
           </div>
           <div class="progress-text" id="like-progress-text">대기 중</div>
           <div class="log-area" id="like-log"></div>
-        </div>
-      </div>
-
-      <!-- ===== 조회수 탭 ===== -->
-      <div class="tab-panel" data-tab="viewcount">
-        <div class="section-card">
-          <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
-            조회할 링크
-            <button class="btn btn-sm btn-secondary" id="btn-vc-clear-links">전체 삭제</button>
-          </div>
-          <div id="vc-links-list" style="max-height:250px; overflow-y:auto; background:#0d1b2a; border:1px solid #1b2838; border-radius:6px; padding:8px; margin-bottom:8px;">
-            <div style="color:#8892b0; font-size:12px;">등록된 링크가 없습니다.</div>
-          </div>
-          <div class="form-row" style="gap:8px; align-items:center;">
-            <input type="text" id="vc-new-link" class="input" placeholder="https://cafe.naver.com/..." style="flex:1;">
-            <button id="btn-vc-add-link" class="btn btn-primary btn-sm">+ 추가</button>
-          </div>
-          <div style="margin-top:8px;">
-            <textarea id="vc-bulk-links" class="input" placeholder="여러 링크 붙여넣기 (한 줄에 하나씩)" style="width:100%; height:60px; resize:vertical; font-size:12px;"></textarea>
-            <button id="btn-vc-bulk-links" class="btn btn-primary btn-sm" style="margin-top:4px;">일괄 추가</button>
-          </div>
-        </div>
-
-        <div class="section-card">
-          <div class="section-title">조회수 설정</div>
-          <div class="form-group">
-            <label>조회 횟수</label>
-            <div class="form-row" style="gap:8px; align-items:center;">
-              <input type="number" class="input" id="vc-count" value="10" min="1" style="width:120px;">
-              <span style="font-size:12px; color:#8892b0;">각 링크를 이 횟수만큼 조회합니다</span>
-            </div>
-          </div>
-          <div style="font-size:11px; color:#5a6485; margin-top:4px;">
-            방식: 매회 새 시크릿 세션 생성 → 비로그인 접속 → 스크롤 → 15~30초 대기 → 세션 폐기 → 65~80초 대기 (1분 중복 방지)
-          </div>
-        </div>
-
-        <!-- 실행 -->
-        <div class="section-card">
-          <div class="section-title">실행</div>
-          <div class="form-row" style="margin-bottom:12px;">
-            <button class="btn btn-primary" id="btn-vc-start">조회수 시작</button>
-            <button class="btn btn-danger" id="btn-vc-stop" disabled>중지</button>
-          </div>
-          <div class="progress-bar-container">
-            <div class="progress-bar" id="vc-progress-bar" style="width:0%"></div>
-          </div>
-          <div class="progress-text" id="vc-progress-text">대기 중</div>
-          <div class="log-area" id="vc-log"></div>
         </div>
       </div>
 

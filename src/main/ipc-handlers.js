@@ -7,14 +7,12 @@ const ipChanger = require('./core/ip-changer');
 const postDeleter = require('./core/post-deleter');
 const commentWriter = require('./core/comment-writer');
 const postLiker = require('./core/post-liker');
-const viewCounter = require('./core/view-counter');
 const Executor = require('./engine/executor');
 const nicknameGenerator = require('./core/nickname-generator');
 
 let globalExecutor = null;
 let deleteCheckInterval = null;
 let likeAbortFlag = false;
-let viewCountAbortFlag = false;
 
 function registerHandlers(mainWindow) {
   // === 계정 CRUD ===
@@ -493,109 +491,6 @@ function registerHandlers(mainWindow) {
 
   ipcMain.handle('like:stop', () => {
     likeAbortFlag = true;
-    return { success: true };
-  });
-
-  // === 조회수 ===
-  ipcMain.handle('viewcount:load-config', () => store.loadViewCountConfig());
-  ipcMain.handle('viewcount:save-config', (_e, config) => {
-    store.saveViewCountConfig(config);
-    return { success: true };
-  });
-
-  ipcMain.handle('viewcount:execute', async (_e, config) => {
-    // config: { links: [string], totalCount: number }
-    viewCountAbortFlag = false;
-    let browser = null;
-
-    try {
-      browser = await browserManager.launchBrowser();
-
-      const { links, totalCount } = config;
-
-      if (!links || links.length === 0) {
-        mainWindow.webContents.send('viewcount:complete', { success: false, error: '링크가 없습니다.' });
-        return { success: false, error: '링크가 없습니다.' };
-      }
-
-      const totalWork = totalCount * links.length;
-      let done = 0;
-
-      const allSettings = store.loadSettings();
-      const ipEnabled = allSettings.ipChange && allSettings.ipChange.enabled;
-      mainWindow.webContents.send('viewcount:log', { msg: `조회수 시작: ${links.length}개 링크 × ${totalCount}회 = 총 ${totalWork}회` });
-      mainWindow.webContents.send('viewcount:log', { msg: `IP 변경: ${ipEnabled ? 'ON' : 'OFF'} / 비로그인 시크릿 세션 방식` });
-
-      for (let round = 0; round < totalCount; round++) {
-        if (viewCountAbortFlag) break;
-
-        for (let linkIdx = 0; linkIdx < links.length; linkIdx++) {
-          if (viewCountAbortFlag) break;
-
-          const link = links[linkIdx];
-
-          // IP 변경
-          if (ipEnabled) {
-            try {
-              const iface = allSettings.ipChange.interfaceName || null;
-              const newIp = await ipChanger.changeIP(iface);
-              mainWindow.webContents.send('viewcount:log', { msg: `IP 변경: ${newIp || '확인 불가'}` });
-            } catch (e) {
-              mainWindow.webContents.send('viewcount:log', { msg: `IP 변경 실패: ${e.message}` });
-            }
-          }
-
-          let ctx = null;
-          try {
-            // 매 조회마다 새 시크릿 컨텍스트 (완전 격리)
-            ctx = await viewCounter.createIsolatedPage(browser);
-            const { context, page, userAgent } = ctx;
-
-            mainWindow.webContents.send('viewcount:log', {
-              msg: `[${round + 1}/${totalCount}] 새 세션 생성 (UA: ${userAgent.substring(0, 50)}...)`
-            });
-
-            // 비로그인 상태로 링크 접속
-            mainWindow.webContents.send('viewcount:log', { msg: `링크 ${linkIdx + 1}/${links.length} 접속 중...` });
-            const visitResult = await viewCounter.visitLink(page, link);
-            if (visitResult.success) {
-              mainWindow.webContents.send('viewcount:log', { msg: `조회 완료 - ${link.substring(0, 60)}` });
-            } else {
-              mainWindow.webContents.send('viewcount:log', { msg: `조회 실패 - ${visitResult.error}` });
-            }
-
-            // 세션 폐기
-            await viewCounter.destroyContext(context);
-
-          } catch (ctxErr) {
-            mainWindow.webContents.send('viewcount:log', { msg: `세션 오류: ${ctxErr.message}` });
-            if (ctx && ctx.context) await viewCounter.destroyContext(ctx.context);
-          }
-
-          done++;
-          mainWindow.webContents.send('viewcount:progress', { current: done, total: totalWork });
-
-          // 다음 조회까지 대기 (5~10초 — IP 변경 안정화)
-          if (!viewCountAbortFlag && (done < totalWork)) {
-            const waitSec = 5 + Math.random() * 5;
-            mainWindow.webContents.send('viewcount:log', { msg: `${waitSec.toFixed(0)}초 대기...` });
-            await browserManager.delay(waitSec * 1000);
-          }
-        }
-      }
-
-      await browser.close();
-      mainWindow.webContents.send('viewcount:complete', { success: true });
-      return { success: true };
-    } catch (e) {
-      if (browser) await browser.close().catch(() => {});
-      mainWindow.webContents.send('viewcount:complete', { success: false, error: e.message });
-      return { success: false, error: e.message };
-    }
-  });
-
-  ipcMain.handle('viewcount:stop', () => {
-    viewCountAbortFlag = true;
     return { success: true };
   });
 

@@ -29,17 +29,15 @@ function createWindow() {
 
 // --- 자동 업데이트 ---
 function setupAutoUpdater() {
-  autoUpdater.autoDownload = false;
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('update-available', (info) => {
     dialog.showMessageBox(mainWindow, {
       type: 'info',
       title: '업데이트 발견',
-      message: `새 버전 v${info.version}이 있습니다. 다운로드하시겠습니까?`,
-      buttons: ['다운로드', '나중에'],
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.downloadUpdate();
+      message: `새 버전 v${info.version}을 다운로드 중입니다...`,
+      buttons: ['확인'],
     });
   });
 
@@ -47,10 +45,10 @@ function setupAutoUpdater() {
     dialog.showMessageBox(mainWindow, {
       type: 'info',
       title: '업데이트 준비 완료',
-      message: '업데이트가 다운로드되었습니다. 앱을 재시작하여 설치하시겠습니까?',
-      buttons: ['재시작', '나중에'],
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall();
+      message: '새 버전이 다운로드되었습니다. 지금 재시작하여 설치합니다.',
+      buttons: ['재시작'],
+    }).then(() => {
+      autoUpdater.quitAndInstall();
     });
   });
 

@@ -4,7 +4,10 @@ const { app } = require('electron');
 
 function getDataDir() {
   if (app && app.isPackaged) {
-    return path.join(process.resourcesPath, 'data');
+    // 프로덕션: 사용자별 AppData 폴더 (개인 데이터 보호)
+    const dir = path.join(app.getPath('userData'), 'data');
+    ensureDir(dir);
+    return dir;
   }
   return path.join(__dirname, '..', '..', '..', 'data');
 }
@@ -360,20 +363,6 @@ function updateDeleteEntry(postUrl, updates) {
   return saveDeleteSchedule(schedule);
 }
 
-// === 조회수 ===
-
-function getViewCountPath() {
-  return path.join(getDataDir(), 'view-count.json');
-}
-
-function loadViewCountConfig() {
-  return readJSON(getViewCountPath(), { accounts: [], links: [] });
-}
-
-function saveViewCountConfig(config) {
-  return writeJSON(getViewCountPath(), config);
-}
-
 module.exports = {
   getDataDir, ensureDir, readJSON, writeJSON,
   loadAccounts, saveAccounts, getAccount, addAccount, updateAccount, deleteAccount,
@@ -385,5 +374,4 @@ module.exports = {
   saveCrawlCache, loadCrawlCache,
   loadNicknameWords, saveNicknameWords,
   loadDeleteSchedule, saveDeleteSchedule, addDeleteEntry, removeDeleteEntries, getDueDeletes, updateDeleteEntry,
-  loadViewCountConfig, saveViewCountConfig,
 };
