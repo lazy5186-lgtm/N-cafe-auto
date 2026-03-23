@@ -56,6 +56,7 @@ const SHORTCUT_DEFS = [
   { id: 'ip-change',       key: 'Ctrl+I',        label: 'IP 변경 테스트',   category: '설정' },
   { id: 'ip-check-iface',  key: 'Ctrl+Shift+I',  label: '인터페이스 확인',  category: '설정' },
   { id: 'adb-check',       key: 'Ctrl+Shift+A',  label: '기기 확인',       category: '설정' },
+  { id: 'headless-toggle', key: 'Ctrl+H',        label: '헤드리스 ON/OFF', category: '설정' },
 ];
 
 let shortcuts = {}; // { id: { key, label, category, enabled } }
@@ -181,6 +182,18 @@ function executeShortcutAction(actionId) {
   if (actionId === 'adb-check') {
     const btn = document.getElementById('btn-check-adb');
     if (btn) btn.click();
+    return;
+  }
+
+  // 헤드리스 토글
+  if (actionId === 'headless-toggle') {
+    const toggle = document.getElementById('toggle-headless');
+    if (toggle) {
+      toggle.checked = !toggle.checked;
+      showToast(`헤드리스 모드: ${toggle.checked ? 'ON' : 'OFF'}`);
+      // 자동 저장
+      document.getElementById('btn-save-settings').click();
+    }
     return;
   }
 }

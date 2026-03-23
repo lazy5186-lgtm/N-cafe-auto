@@ -50,6 +50,14 @@ function registerHandlers(mainWindow) {
 
     let browser = null;
     try {
+      // IP 변경 (설정 ON일 때)
+      const settings = store.loadSettings();
+      if (settings.ipChange && settings.ipChange.enabled) {
+        try {
+          await ipChanger.changeIP(null);
+        } catch (e) { /* ignore */ }
+      }
+
       browser = await browserManager.launchBrowser();
       const page = await browserManager.createPage(browser);
       const result = await auth.loginAccount(page, account.id, account.password);
@@ -99,6 +107,14 @@ function registerHandlers(mainWindow) {
   // === 가입 카페 목록 ===
   ipcMain.handle('cafes:joined', async (_e, accountId) => {
     try {
+      // IP 변경 (설정 ON일 때)
+      const settings = store.loadSettings();
+      if (settings.ipChange && settings.ipChange.enabled) {
+        try {
+          await ipChanger.changeIP(null);
+        } catch (e) { /* ignore */ }
+      }
+
       const cafes = await crawl.fetchJoinedCafes(accountId);
       return { success: true, cafes };
     } catch (e) {
@@ -308,6 +324,14 @@ function registerHandlers(mainWindow) {
 
   // === 좋아요 ===
   ipcMain.handle('like:fetch-articles', async (_e, accountId, cafeId) => {
+    // IP 변경 (설정 ON일 때)
+    const likeSettings = store.loadSettings();
+    if (likeSettings.ipChange && likeSettings.ipChange.enabled) {
+      try {
+        await ipChanger.changeIP(null);
+      } catch (e) { /* ignore */ }
+    }
+
     const cookies = store.loadCookies(accountId);
     if (!cookies || cookies.length === 0) {
       // 쿠키 없으면 바로 로그인 시도
