@@ -1,5 +1,6 @@
 const { app, BrowserWindow, dialog } = require('electron');
 const path = require('path');
+process.env.GH_TOKEN = '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';
 const { autoUpdater } = require('electron-updater');
 const { registerHandlers, cleanup } = require('./ipc-handlers');
 const store = require('./data/store');
@@ -29,7 +30,6 @@ function createWindow() {
 
 // --- 자동 업데이트 ---
 function setupAutoUpdater() {
-  autoUpdater.requestHeaders = { Authorization: 'token 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' };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
