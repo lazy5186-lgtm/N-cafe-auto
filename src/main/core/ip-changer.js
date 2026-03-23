@@ -104,30 +104,24 @@ async function changeIPviaADB(settings, logFn) {
   const log = logFn || (() => {});
   const deviceId = (settings.ipChange && settings.ipChange.adb && settings.ipChange.adb.deviceId) || null;
 
-  const oldIp = await ipChecker.getPublicIP();
-  log(`현재 IP: ${oldIp || '확인 불가'}`);
-
   await adbHelper.toggleMobileData(deviceId, log);
 
-  // 폴링: IP가 바뀔 때까지 1초 간격으로 확인 (최대 15초)
+  // 폴링: IP를 받아올 때까지 1초 간격으로 확인 (최대 15초)
   let newIp = null;
   for (let i = 0; i < 15; i++) {
     await delay(1000);
     try {
       newIp = await ipChecker.getPublicIP();
-      if (newIp && newIp !== oldIp) {
-        log(`변경 완료: ${oldIp || '?'} → ${newIp}`);
+      if (newIp) {
+        log(`변경 완료: ${newIp}`);
         return newIp;
       }
     } catch (e) {
-      // 네트워크 아직 복구 안됨 — 계속 대기
+      // 네트워크 아직 복구 안됨
     }
   }
 
-  log(`변경 전: ${oldIp || '?'} → 변경 후: ${newIp || '확인 불가'}`);
-  if (oldIp && newIp && oldIp === newIp) {
-    log('⚠ IP가 변경되지 않았습니다.');
-  }
+  log(`IP 확인 실패`);
   return newIp;
 }
 

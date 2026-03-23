@@ -96,12 +96,10 @@ async function toggleMobileData(deviceId, logFn) {
   log('모바일 데이터 OFF...');
   await execAdb(`${deviceArg} shell svc data disable`);
 
-  await delay(1000);
+  await delay(500);
 
   log('모바일 데이터 ON...');
   await execAdb(`${deviceArg} shell svc data enable`);
-
-  log('IP 할당 대기...');
 }
 
 module.exports = { getAdbPath, isAdbAvailable, getConnectedDevices, checkDeviceStatus, toggleMobileData };
