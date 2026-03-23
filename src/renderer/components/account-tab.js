@@ -164,6 +164,9 @@ const MsHelpers = {
     div.innerHTML = `
       <div class="ms-cmt-row">
         <select class="input ms-cmt-account" style="width:150px;">${accountOptions}</select>
+        <label style="font-size:11px; color:#8892b0; display:flex; align-items:center; gap:3px; cursor:pointer;">
+          <input type="checkbox" class="ms-cmt-random-nick" ${cmt.randomNickname ? 'checked' : ''}> 랜덤닉
+        </label>
         <span class="seg-image-path ms-cmt-image-path" data-path="${cmt.imagePath || ''}" style="font-size:11px; flex:1;">${cmt.imagePath || '이미지 없음'}</span>
         <button class="btn btn-sm btn-secondary btn-ms-cmt-img">이미지</button>
         <button class="btn-cmt-delete" title="삭제">&#10005;</button>
@@ -228,6 +231,9 @@ const MsHelpers = {
       <div class="ms-reply-row">
         <span class="ms-reply-arrow">${arrows}</span>
         <select class="input ms-reply-account" style="width:140px;">${accountOptions}</select>
+        <label style="font-size:11px; color:#8892b0; display:flex; align-items:center; gap:3px; cursor:pointer;">
+          <input type="checkbox" class="ms-reply-random-nick" ${reply.randomNickname ? 'checked' : ''}> 랜덤닉
+        </label>
         <span class="seg-image-path ms-reply-image-path" data-path="${reply.imagePath || ''}" style="font-size:11px; flex:1;">${reply.imagePath || '이미지 없음'}</span>
         <button class="btn btn-sm btn-secondary btn-ms-reply-img" style="font-size:11px;">이미지</button>
         <button class="btn-reply-delete" title="삭제">&#10005;</button>

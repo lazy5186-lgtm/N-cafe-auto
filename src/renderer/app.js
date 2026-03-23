@@ -745,11 +745,13 @@ function collectMsData() {
     const replies = [];
     containerEl.querySelectorAll(':scope > .ms-reply-item').forEach(replyEl => {
       const rAcct = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-account');
+      const rNick = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-random-nick');
       const rText = replyEl.querySelector(':scope > .ms-reply-text');
       const rImg = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-image-path');
       const subList = replyEl.querySelector(':scope > .ms-reply-sub-list');
       replies.push({
         accountId: rAcct ? rAcct.value : '',
+        randomNickname: rNick ? rNick.checked : false,
         text: rText ? rText.value : '',
         imagePath: rImg ? rImg.dataset.path || null : null,
         replies: subList ? collectReplies(subList) : [],
@@ -761,11 +763,13 @@ function collectMsData() {
   ms.comments = [];
   document.querySelectorAll('#ms-comments-list > .ms-comment-item').forEach(item => {
     const accountSelect = item.querySelector('.ms-cmt-account');
+    const nickCheck = item.querySelector('.ms-cmt-random-nick');
     const textInput = item.querySelector('.ms-cmt-text');
     const imgSpan = item.querySelector('.ms-cmt-image-path');
     const replyList = item.querySelector('.ms-reply-list');
     ms.comments.push({
       accountId: accountSelect ? accountSelect.value : '',
+      randomNickname: nickCheck ? nickCheck.checked : false,
       text: textInput ? textInput.value : '',
       imagePath: imgSpan ? imgSpan.dataset.path || null : null,
       replies: replyList ? collectReplies(replyList) : [],

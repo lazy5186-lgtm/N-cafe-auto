@@ -199,34 +199,50 @@ class Executor extends EventEmitter {
 
           if (ms.comments && ms.comments.length > 0 && isValidPostUrl) {
             // 계정 전환 헬퍼
-            const switchAccount = async (targetAccId) => {
-              if (targetAccId === currentLoggedInAccount) return true;
+            const switchAccount = async (targetAccId, randomNickname) => {
+              if (targetAccId === currentLoggedInAccount && !randomNickname) return true;
               const targetAcc = allAccounts.find(a => a.id === targetAccId);
               if (!targetAcc) {
                 this.log(`계정 "${targetAccId}" 없음. 건너뜁니다.`);
                 return false;
               }
 
-              if (settings.ipChange && settings.ipChange.enabled) {
-                this.log('댓글 계정 전환 전 IP 변경...');
-                try {
-                  const iface = settings.ipChange.interfaceName || null;
-                  const newIp = await ipChanger.changeIP(iface, (msg) => this.log(msg));
-                  this.log(`IP 변경 완료: ${newIp || '확인 불가'}`);
-                } catch (e) {
-                  this.log(`IP 변경 실패: ${e.message}`);
+              if (targetAccId !== currentLoggedInAccount) {
+                if (settings.ipChange && settings.ipChange.enabled) {
+                  this.log('댓글 계정 전환 전 IP 변경...');
+                  try {
+                    const iface = settings.ipChange.interfaceName || null;
+                    const newIp = await ipChanger.changeIP(iface, (msg) => this.log(msg));
+                    this.log(`IP 변경 완료: ${newIp || '확인 불가'}`);
+                  } catch (e) {
+                    this.log(`IP 변경 실패: ${e.message}`);
+                  }
+                }
+
+                this.log(`계정 전환: ${targetAccId}`);
+                await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
+                const result = await auth.loginAccount(page, targetAcc.id, targetAcc.password);
+                if (!result.success) {
+                  this.log(`${targetAccId} 로그인 실패`);
+                  return false;
+                }
+                currentLoggedInAccount = targetAccId;
+                this.log(`${targetAccId} 로그인 성공`);
+              }
+
+              // 랜덤 닉네임
+              if (randomNickname && ms.cafeName) {
+                this.log(`댓글 계정 닉네임 변경: 랜덤`);
+                const nickResult = await nicknameChanger.changeNickname(
+                  page, browser, ms.cafeName || ms.cafeId, 'random'
+                );
+                if (nickResult.success) {
+                  this.log(`닉네임 변경 완료: "${nickResult.nickname}"`);
+                } else {
+                  this.log(`닉네임 변경 실패: ${nickResult.error || '알 수 없음'}`);
                 }
               }
 
-              this.log(`계정 전환: ${targetAccId}`);
-              await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
-              const result = await auth.loginAccount(page, targetAcc.id, targetAcc.password);
-              if (!result.success) {
-                this.log(`${targetAccId} 로그인 실패`);
-                return false;
-              }
-              currentLoggedInAccount = targetAccId;
-              this.log(`${targetAccId} 로그인 성공`);
               return true;
             };
 
@@ -245,7 +261,7 @@ class Executor extends EventEmitter {
 
                 let replyLoginOk = false;
                 try {
-                  replyLoginOk = await switchAccount(replyAccId);
+                  replyLoginOk = await switchAccount(replyAccId, reply.randomNickname);
                 } catch (switchErr) {
                   this.log(`계정 전환 오류 (${replyAccId}): ${switchErr.message}`);
                 }
@@ -290,7 +306,7 @@ class Executor extends EventEmitter {
               const cmtAccId = cmt.accountId || posterAccId;
               const cmtResult = { accountId: cmtAccId, status: 'pending', replies: [] };
 
-              const cmtLoginOk = await switchAccount(cmtAccId);
+              const cmtLoginOk = await switchAccount(cmtAccId, cmt.randomNickname);
               if (!cmtLoginOk) {
                 cmtResult.status = 'failed';
                 cmtResult.error = '계정 전환 실패';
