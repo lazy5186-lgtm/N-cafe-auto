@@ -66,6 +66,10 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('like:complete', listener);
   },
 
+  // 업데이트
+  getAppVersion: () => ipcRenderer.invoke('app:version'),
+  checkForUpdate: () => ipcRenderer.invoke('app:check-update'),
+
   // 유틸
   selectImage: () => ipcRenderer.invoke('util:select-image'),
   openExternal: (url) => ipcRenderer.invoke('util:open-external', url),

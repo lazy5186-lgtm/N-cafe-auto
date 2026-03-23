@@ -21,6 +21,8 @@ body {
 
 /* App Header */
 .app-header {
+  display: flex;
+  align-items: center;
   padding: 12px 20px;
   background: #0d1b2a;
   border-bottom: 1px solid #1b2838;

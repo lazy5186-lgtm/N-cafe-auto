@@ -1,4 +1,5 @@
-const { ipcMain, dialog, shell } = require('electron');
+const { ipcMain, dialog, shell, app } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const store = require('./data/store');
 const browserManager = require('./core/browser-manager');
 const auth = require('./core/auth');
@@ -492,6 +493,20 @@ function registerHandlers(mainWindow) {
   ipcMain.handle('like:stop', () => {
     likeAbortFlag = true;
     return { success: true };
+  });
+
+  // === 업데이트 ===
+  ipcMain.handle('app:version', () => app.getVersion());
+  ipcMain.handle('app:check-update', async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
+        return { hasUpdate: true, version: result.updateInfo.version };
+      }
+      return { hasUpdate: false };
+    } catch (e) {
+      return { hasUpdate: false, error: e.message };
+    }
   });
 
   // === 유틸 ===

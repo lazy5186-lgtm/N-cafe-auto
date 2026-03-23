@@ -1517,8 +1517,32 @@ function appendLikeLog(msg, type) {
 // 초기화
 // =============================================
 
+async function setupVersionAndUpdate() {
+  const version = await window.api.getAppVersion();
+  document.getElementById('app-version').textContent = `v${version}`;
+
+  const btn = document.getElementById('btn-check-update');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = '확인 중...';
+    const result = await window.api.checkForUpdate();
+    if (result.hasUpdate) {
+      btn.textContent = `v${result.version} 다운로드 중...`;
+    } else if (result.error) {
+      showToast('업데이트 확인 실패: ' + result.error);
+      btn.disabled = false;
+      btn.textContent = '업데이트 확인';
+    } else {
+      showToast('최신 버전입니다.');
+      btn.disabled = false;
+      btn.textContent = '업데이트 확인';
+    }
+  });
+}
+
 async function initApp() {
   setupTabs();
+  setupVersionAndUpdate();
 
   // 데이터 로드
   accounts = await window.api.loadAccounts();
