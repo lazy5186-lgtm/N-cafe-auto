@@ -122,7 +122,7 @@ async function changeIPviaADB(settings, logFn) {
 // === 디스패처 ===
 async function changeIP(interfaceName, logFn) {
   const settings = store.loadSettings();
-  const method = (settings.ipChange && settings.ipChange.method) || 'netsh';
+  const method = (settings.ipChange && settings.ipChange.method) || 'adb';
 
   if (method === 'adb') {
     return await changeIPviaADB(settings, logFn);

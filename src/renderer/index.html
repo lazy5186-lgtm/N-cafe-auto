@@ -68,23 +68,9 @@
           </div>
           <div class="ip-settings" style="margin-top:8px; display:none;">
             <div class="form-row" style="margin-bottom:8px;">
-              <label style="font-size:12px; color:#8892b0; margin-right:8px;">방식:</label>
-              <select id="ip-method-select" class="input" style="width:200px;">
-                <option value="netsh">네트워크 인터페이스 (netsh)</option>
-                <option value="adb">USB 테더링 (ADB)</option>
-              </select>
-            </div>
-            <!-- netsh -->
-            <div id="ip-netsh-panel" class="form-row">
-              <input type="text" id="iface-input" class="input" placeholder="인터페이스 이름 (자동감지)" style="width:220px;">
               <button id="btn-check-iface" class="btn btn-sm btn-secondary">인터페이스 확인</button>
-              <button id="btn-test-ip" class="btn btn-sm btn-primary">IP 변경 테스트</button>
-              <span id="ip-status" style="font-size:12px; color:#8892b0;"></span>
-            </div>
-            <!-- ADB -->
-            <div id="ip-adb-panel" class="form-row" style="display:none;">
-              <button id="btn-check-adb" class="btn btn-sm btn-secondary">기기 확인</button>
-              <button id="btn-test-adb" class="btn btn-sm btn-primary">ADB IP 변경 테스트</button>
+              <button id="btn-check-adb" class="btn btn-sm btn-secondary">ADB 기기 확인</button>
+              <button id="btn-test-adb" class="btn btn-sm btn-primary">IP 변경 테스트</button>
               <span id="adb-status" style="font-size:12px; color:#8892b0;"></span>
             </div>
           </div>
