@@ -69,6 +69,12 @@ contextBridge.exposeInMainWorld('api', {
   // 업데이트
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   checkForUpdate: () => ipcRenderer.invoke('app:check-update'),
+  installUpdate: () => ipcRenderer.invoke('app:install-update'),
+  onUpdateAvailable: (cb) => { ipcRenderer.on('update:available', (_e, d) => cb(d)); },
+  onUpdateProgress: (cb) => { ipcRenderer.on('update:progress', (_e, d) => cb(d)); },
+  onUpdateDownloaded: (cb) => { ipcRenderer.on('update:downloaded', (_e, d) => cb(d)); },
+  onUpdateNotAvailable: (cb) => { ipcRenderer.on('update:notAvailable', () => cb()); },
+  onUpdateError: (cb) => { ipcRenderer.on('update:error', (_e, d) => cb(d)); },
 
   // 유틸
   selectImage: () => ipcRenderer.invoke('util:select-image'),

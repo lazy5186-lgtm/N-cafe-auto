@@ -499,14 +499,14 @@ function registerHandlers(mainWindow) {
   ipcMain.handle('app:version', () => app.getVersion());
   ipcMain.handle('app:check-update', async () => {
     try {
-      const result = await autoUpdater.checkForUpdates();
-      if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
-        return { hasUpdate: true, version: result.updateInfo.version };
-      }
-      return { hasUpdate: false };
+      await autoUpdater.checkForUpdates();
+      return { checking: true };
     } catch (e) {
-      return { hasUpdate: false, error: e.message };
+      return { error: e.message };
     }
+  });
+  ipcMain.handle('app:install-update', () => {
+    autoUpdater.quitAndInstall();
   });
 
   // === 유틸 ===

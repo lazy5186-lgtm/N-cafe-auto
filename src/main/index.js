@@ -1,6 +1,5 @@
 const { app, BrowserWindow, dialog } = require('electron');
 const path = require('path');
-process.env.GH_TOKEN = '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';
 const { autoUpdater } = require('electron-updater');
 const { registerHandlers, cleanup } = require('./ipc-handlers');
 const store = require('./data/store');
@@ -34,30 +33,27 @@ function setupAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('update-available', (info) => {
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: '업데이트 발견',
-      message: `새 버전 v${info.version}을 다운로드 중입니다...`,
-      buttons: ['확인'],
-    });
+    mainWindow?.webContents.send('update:available', { version: info.version });
   });
 
-  autoUpdater.on('update-downloaded', () => {
-    dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: '업데이트 준비 완료',
-      message: '새 버전이 다운로드되었습니다. 지금 재시작하여 설치합니다.',
-      buttons: ['재시작'],
-    }).then(() => {
-      autoUpdater.quitAndInstall();
-    });
+  autoUpdater.on('download-progress', (progress) => {
+    mainWindow?.webContents.send('update:progress', { percent: Math.round(progress.percent) });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('update:downloaded', { version: info.version });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    mainWindow?.webContents.send('update:notAvailable');
   });
 
   autoUpdater.on('error', (err) => {
     console.error('업데이트 오류:', err.message);
+    mainWindow?.webContents.send('update:error', { message: err.message });
   });
 
-  autoUpdater.checkForUpdates().catch(() => {});
+  autoUpdater.checkForUpdatesAndNotify();
 }
 
 app.whenReady().then(() => {

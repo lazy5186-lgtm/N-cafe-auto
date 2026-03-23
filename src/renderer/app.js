@@ -1522,17 +1522,37 @@ async function setupVersionAndUpdate() {
   document.getElementById('app-version').textContent = `v${version}`;
 
   const btn = document.getElementById('btn-check-update');
+
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     btn.textContent = '확인 중...';
-    const result = await window.api.checkForUpdate();
-    if (result.hasUpdate) {
-      btn.textContent = `v${result.version} 다운로드 중...`;
-    } else {
-      showToast('최신 버전입니다.');
-      btn.disabled = false;
-      btn.textContent = '업데이트 확인';
-    }
+    await window.api.checkForUpdate();
+  });
+
+  window.api.onUpdateAvailable((data) => {
+    btn.textContent = `v${data.version} 다운로드 중...`;
+  });
+
+  window.api.onUpdateProgress((data) => {
+    btn.textContent = `다운로드 ${data.percent}%`;
+  });
+
+  window.api.onUpdateDownloaded((data) => {
+    btn.textContent = `v${data.version} 설치`;
+    btn.disabled = false;
+    btn.onclick = () => window.api.installUpdate();
+  });
+
+  window.api.onUpdateNotAvailable(() => {
+    showToast('최신 버전입니다.');
+    btn.disabled = false;
+    btn.textContent = '업데이트 확인';
+  });
+
+  window.api.onUpdateError(() => {
+    showToast('최신 버전입니다.');
+    btn.disabled = false;
+    btn.textContent = '업데이트 확인';
   });
 }
 
