@@ -3,7 +3,7 @@ const fs = require('fs');
 const { delay } = require('./browser-manager');
 
 async function navigateToWritePage(page, cafeId, menuId) {
-  const writeUrl = `https://cafe.naver.com/ca-fe/cafes/${cafeId}/articles/write?boardType=L&menuId=${menuId}`;
+  const writeUrl = `https://cafe.naver.com/ca-fe/cafes/${cafeId}/articles/write?boardType=L`;
   let success = false;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -173,16 +173,63 @@ async function selectBoard(page, menuId, boardName) {
 async function writePost(page, cafeId, menuId, title, bodySegments, boardName, visibility) {
   await navigateToWritePage(page, cafeId, menuId);
 
-  // === 1. 에디터 포커스 ===
-  const editorBody = await page.$('.se-component-content .se-text-paragraph');
-  if (editorBody) {
-    await editorBody.click();
-  } else {
-    await page.click('.se-component-content');
-  }
-  await delay(1500);
+  // === 1. 게시판 선택 (선택하면 양식이 로드됨) ===
+  await selectBoard(page, menuId, boardName);
+  console.log('게시판 양식 로드 대기...');
+  await delay(3000);
 
-  // === 2. bodySegments 순서대로 텍스트/이미지 삽입 ===
+  // === 2. 양식 감지 + 에디터 포커스 ===
+  const hasTemplate = await page.evaluate(() => {
+    const paragraphs = document.querySelectorAll('.se-text-paragraph');
+    for (const p of paragraphs) {
+      if (p.textContent.trim().length > 0) return true;
+    }
+    return false;
+  });
+
+  if (hasTemplate) {
+    // 양식이 있으면 마지막 paragraph 끝에 커서 배치
+    console.log('게시판 양식 감지됨 — 마지막 paragraph 끝으로 이동');
+    await page.evaluate(() => {
+      const paragraphs = document.querySelectorAll('.se-text-paragraph');
+      const last = paragraphs[paragraphs.length - 1];
+      last.scrollIntoView({ block: 'center' });
+      last.click();
+      const range = document.createRange();
+      const sel = window.getSelection();
+      if (last.childNodes.length > 0) {
+        const lastChild = last.childNodes[last.childNodes.length - 1];
+        if (lastChild.nodeType === 3) {
+          range.setStart(lastChild, lastChild.length);
+          range.setEnd(lastChild, lastChild.length);
+        } else {
+          range.setStartAfter(lastChild);
+          range.setEndAfter(lastChild);
+        }
+      } else {
+        range.selectNodeContents(last);
+        range.collapse(false);
+      }
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+    await delay(500);
+    await page.keyboard.press('End');
+    await delay(200);
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await delay(500);
+  } else {
+    const editorBody = await page.$('.se-text-paragraph');
+    if (editorBody) {
+      await editorBody.click();
+    } else {
+      await page.click('.se-component-content');
+    }
+  }
+  await delay(1000);
+
+  // === 3. bodySegments 순서대로 텍스트/이미지 삽입 ===
   for (let si = 0; si < bodySegments.length; si++) {
     const segment = bodySegments[si];
     if (segment.type === 'text') {
@@ -227,10 +274,6 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     throw new Error('제목 요소를 찾을 수 없습니다');
   }
 
-  // === 4. 게시판 선택 (드롭다운) ===
-  await selectBoard(page, menuId, boardName);
-  await delay(2000);
-
   // === 5. 공개 설정 ===
   try {
     const openSetBtn = await page.$('.btn_open_set');
@@ -263,14 +306,14 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   await writeButton.click();
   console.log('등록 버튼 클릭 완료, 네비게이션 대기...');
 
-  // 네비게이션 대기 (최대 30초)
+  // 네비게이션 대기 (최대 10초)
   try {
-    await page.waitForNavigation({ timeout: 30000 });
+    await page.waitForNavigation({ timeout: 10000 });
   } catch (e) {
     console.log('네비게이션 타임아웃, 현재 URL 확인...');
   }
 
-  await delay(3000);
+  await delay(1000);
 
   // === 6. 등록 결과 확인 ===
   const currentUrl = page.url();

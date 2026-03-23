@@ -34,9 +34,17 @@ async function launchBrowser(chromePath) {
     throw new Error('Chrome을 찾을 수 없습니다. Chrome이 설치되어 있는지 확인하세요.');
   }
 
+  // 설정에서 헤드리스 모드 읽기
+  let headless = false;
+  try {
+    const store = require('../data/store');
+    const settings = store.loadSettings();
+    headless = settings.headless || false;
+  } catch (e) { /* ignore */ }
+
   const browser = await puppeteer.launch({
     executablePath: execPath,
-    headless: false,
+    headless: headless ? 'new' : false,
     ignoreHTTPSErrors: true,
     defaultViewport: null,
     args: [

@@ -56,6 +56,18 @@
           </div>
         </div>
 
+        <!-- 브라우저 설정 -->
+        <div class="section-card">
+          <div class="section-title">브라우저</div>
+          <div class="form-row">
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-headless">
+              <span class="toggle-slider"></span>
+              <span class="toggle-text">헤드리스 모드 (브라우저 숨김)</span>
+            </label>
+          </div>
+        </div>
+
         <!-- IP 변경 -->
         <div class="section-card">
           <div class="section-title">IP 변경</div>
@@ -69,7 +81,7 @@
           <div class="ip-settings" style="margin-top:8px; display:none;">
             <div class="form-row" style="margin-bottom:8px;">
               <button id="btn-check-iface" class="btn btn-sm btn-secondary">인터페이스 확인</button>
-              <button id="btn-check-adb" class="btn btn-sm btn-secondary">ADB 기기 확인</button>
+              <button id="btn-check-adb" class="btn btn-sm btn-secondary">기기 확인</button>
               <button id="btn-test-adb" class="btn btn-sm btn-primary">IP 변경 테스트</button>
               <span id="adb-status" style="font-size:12px; color:#8892b0;"></span>
             </div>

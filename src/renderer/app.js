@@ -55,7 +55,7 @@ const SHORTCUT_DEFS = [
   { id: 'ip-toggle',       key: 'Ctrl+Shift+P',  label: 'IP 변경 ON/OFF',  category: '설정' },
   { id: 'ip-change',       key: 'Ctrl+I',        label: 'IP 변경 테스트',   category: '설정' },
   { id: 'ip-check-iface',  key: 'Ctrl+Shift+I',  label: '인터페이스 확인',  category: '설정' },
-  { id: 'adb-check',       key: 'Ctrl+Shift+A',  label: 'ADB 기기 확인',   category: '설정' },
+  { id: 'adb-check',       key: 'Ctrl+Shift+A',  label: '기기 확인',       category: '설정' },
 ];
 
 let shortcuts = {}; // { id: { key, label, category, enabled } }
@@ -469,6 +469,10 @@ function setupAddAccount() {
 
 
 function setupSettingsToggles() {
+  // 헤드리스 모드
+  const headlessToggle = document.getElementById('toggle-headless');
+  headlessToggle.checked = settings.headless || false;
+
   const ipToggle = document.getElementById('toggle-ip-change');
   const ipSettings = document.querySelector('.ip-settings');
 
@@ -528,6 +532,7 @@ function setupSettingsToggles() {
   document.getElementById('btn-save-settings').addEventListener('click', async () => {
     settings = {
       ...settings,
+      headless: headlessToggle.checked,
       ipChange: {
         enabled: ipToggle.checked,
         method: 'adb',
