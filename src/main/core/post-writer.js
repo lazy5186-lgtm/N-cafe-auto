@@ -40,15 +40,26 @@ async function uploadImage(page, filePath) {
 
   try {
     console.log('이미지 업로드 시도:', filePath);
+    // input[type="file"]에 직접 업로드 (헤드리스 호환)
+    const fileInput = await page.$('.se-image-toolbar-button input[type="file"], input[type="file"][accept*="image"]');
+    if (fileInput) {
+      await fileInput.uploadFile(filePath);
+      await page.evaluate(() => {
+        const input = document.querySelector('.se-image-toolbar-button input[type="file"], input[type="file"][accept*="image"]');
+        if (input) input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      console.log('이미지 업로드 완료 (uploadFile)');
+      await delay(4000);
+      return true;
+    }
+    // 폴백: fileChooser 방식
     const [fileChooser] = await Promise.all([
       page.waitForFileChooser({ timeout: 10000 }),
       page.click('button.se-image-toolbar-button'),
     ]);
     await fileChooser.accept([filePath]);
-    console.log('이미지 파일 선택 완료, 업로드 대기...');
-    // 이미지 업로드 완료 대기 (이미지 컴포넌트가 나타날 때까지)
+    console.log('이미지 업로드 완료 (fileChooser)');
     await delay(4000);
-    console.log('이미지 업로드 완료');
     return true;
   } catch (e) {
     console.error('이미지 업로드 실패:', e.message);

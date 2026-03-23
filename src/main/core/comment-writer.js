@@ -1,5 +1,26 @@
 const fs = require('fs');
+const path = require('path');
 const { delay } = require('./browser-manager');
+
+/**
+ * iframe 안의 이미지 업로드 (헤드리스 호환)
+ * label.button_file 클릭 → page.waitForFileChooser로 파일 선택
+ */
+async function uploadFileToInput(page, frame, labelSelector, filePath) {
+  const label = await frame.$(labelSelector);
+  if (!label) {
+    throw new Error(`이미지 버튼을 찾을 수 없습니다: ${labelSelector}`);
+  }
+
+  const [fileChooser] = await Promise.all([
+    page.waitForFileChooser({ timeout: 5000 }),
+    frame.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (el) el.click();
+    }, labelSelector),
+  ]);
+  await fileChooser.accept([path.resolve(filePath)]);
+}
 
 async function navigateToArticle(page, articleUrl) {
   console.log('게시글 이동:', articleUrl);
@@ -117,18 +138,9 @@ async function writeComment(page, frame, text, imagePath) {
   if (imagePath && fs.existsSync(imagePath)) {
     console.log('댓글 이미지 첨부 시도:', imagePath);
     try {
-      const imgButton = await frame.$('.comment_attach label.button_file, label.button_file');
-      if (imgButton) {
-        const [fileChooser] = await Promise.all([
-          page.waitForFileChooser({ timeout: 5000 }),
-          imgButton.click(),
-        ]);
-        await fileChooser.accept([imagePath]);
-        console.log('댓글 이미지 업로드 완료 (fileChooser)');
-        await delay(3000);
-      } else {
-        console.log('댓글 이미지 첨부 버튼을 찾을 수 없습니다');
-      }
+      await uploadFileToInput(page, frame, '.comment_attach .button_file, label.button_file', imagePath);
+      console.log('댓글 이미지 업로드 완료');
+      await delay(3000);
     } catch (e) {
       console.error('댓글 이미지 첨부 실패:', e.message);
     }
@@ -352,32 +364,9 @@ async function writeReply(page, frame, targetCommentText, replyText, replyImageP
     console.log('답글 이미지 첨부 시도:', replyImagePath);
     try {
       const writerScope = '.comment_list .CommentWriter';
-      const imgButton = await frame.$(`${writerScope} label.button_file`);
-      if (imgButton) {
-        const [fileChooser] = await Promise.all([
-          page.waitForFileChooser({ timeout: 5000 }),
-          imgButton.click(),
-        ]);
-        await fileChooser.accept([replyImagePath]);
-        console.log('답글 이미지 업로드 완료 (fileChooser)');
-        await delay(3000);
-      } else {
-        const fileInput = await frame.$(`${writerScope} input[type="file"]`);
-        if (fileInput) {
-          const [fileChooser] = await Promise.all([
-            page.waitForFileChooser({ timeout: 5000 }),
-            frame.evaluate((scope) => {
-              const input = document.querySelector(scope + ' input[type="file"]');
-              if (input) input.click();
-            }, writerScope),
-          ]);
-          await fileChooser.accept([replyImagePath]);
-          console.log('답글 이미지 업로드 완료 (input click)');
-          await delay(3000);
-        } else {
-          console.log('답글 이미지 첨부 버튼을 찾을 수 없습니다');
-        }
-      }
+      await uploadFileToInput(page, frame, `${writerScope} .button_file, ${writerScope} label.button_file`, replyImagePath);
+      console.log('답글 이미지 업로드 완료');
+      await delay(3000);
     } catch (e) {
       console.error('답글 이미지 첨부 실패:', e.message);
     }

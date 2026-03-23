@@ -44,17 +44,22 @@ function registerHandlers(mainWindow) {
     return !!(cookies && cookies.length > 0);
   });
 
+  // 안전한 send 헬퍼
+  function safeSend(channel, data) {
+    try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); } catch (e) { /* ignore */ }
+  }
+
   // IP 변경 헬퍼 (상태를 renderer로 전송)
   async function changeIPWithStatus(label) {
     const s = store.loadSettings();
     if (!(s.ipChange && s.ipChange.enabled)) return null;
-    mainWindow.webContents.send('ip:status', { msg: `${label} — IP 변경 중...` });
+    safeSend('ip:status', { msg: `${label} — IP 변경 중...` });
     try {
       const newIp = await ipChanger.changeIP(null);
-      mainWindow.webContents.send('ip:status', { msg: `${label} — IP: ${newIp || '확인 불가'}` });
+      safeSend('ip:status', { msg: `${label} — IP: ${newIp || '확인 불가'}` });
       return newIp;
     } catch (e) {
-      mainWindow.webContents.send('ip:status', { msg: `${label} — IP 변경 실패` });
+      safeSend('ip:status', { msg: `${label} — IP 변경 실패` });
       return null;
     }
   }
@@ -218,9 +223,9 @@ function registerHandlers(mainWindow) {
           try {
             const iface = settings.ipChange.interfaceName || null;
             const newIp = await ipChanger.changeIP(iface);
-            mainWindow.webContents.send('execution:log', { msg: `IP 변경 완료: ${newIp || '확인 불가'}` });
+            safeSend('execution:log', { msg: `IP 변경 완료: ${newIp || '확인 불가'}` });
           } catch (e) {
-            mainWindow.webContents.send('execution:log', { msg: `IP 변경 실패: ${e.message}` });
+            safeSend('execution:log', { msg: `IP 변경 실패: ${e.message}` });
           }
         }
 
@@ -238,11 +243,11 @@ function registerHandlers(mainWindow) {
             await postDeleter.deletePost(page, entry.postUrl);
             store.updateDeleteEntry(entry.postUrl, { status: 'deleted', deletedAt: new Date().toISOString() });
             results.push({ postUrl: entry.postUrl, status: 'deleted' });
-            mainWindow.webContents.send('execution:log', { msg: `삭제 완료: ${entry.postTitle || entry.postUrl}` });
+            safeSend('execution:log', { msg: `삭제 완료: ${entry.postTitle || entry.postUrl}` });
           } catch (e) {
             store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: e.message });
             results.push({ postUrl: entry.postUrl, status: 'failed', error: e.message });
-            mainWindow.webContents.send('execution:log', { msg: `삭제 실패: ${entry.postTitle || entry.postUrl} - ${e.message}` });
+            safeSend('execution:log', { msg: `삭제 실패: ${entry.postTitle || entry.postUrl} - ${e.message}` });
           }
         }
       }
@@ -267,19 +272,15 @@ function registerHandlers(mainWindow) {
 
     globalExecutor = new Executor();
 
-    globalExecutor.on('log', (data) => {
-      mainWindow.webContents.send('execution:log', data);
-    });
-    globalExecutor.on('progress', (data) => {
-      mainWindow.webContents.send('execution:progress', data);
-    });
+    globalExecutor.on('log', (data) => safeSend('execution:log', data));
+    globalExecutor.on('progress', (data) => safeSend('execution:progress', data));
     globalExecutor.on('complete', (data) => {
-      mainWindow.webContents.send('execution:complete', data);
+      safeSend('execution:complete', data);
       globalExecutor = null;
     });
 
     globalExecutor.execute(manuscripts, settings, accounts).catch(e => {
-      mainWindow.webContents.send('execution:log', { msg: `실행 오류: ${e.message}` });
+      safeSend('execution:log', { msg: `실행 오류: ${e.message}` });
       globalExecutor = null;
     });
 
@@ -449,22 +450,22 @@ function registerHandlers(mainWindow) {
       const totalWork = targetArticles.length * likerQueue.length;
       let done = 0;
 
-      mainWindow.webContents.send('like:log', { msg: `좋아요 시작: ${targetArticles.length}개 게시글 × ${likerQueue.length}개 계정` });
+      safeSend('like:log', { msg: `좋아요 시작: ${targetArticles.length}개 게시글 × ${likerQueue.length}개 계정` });
 
       for (const article of targetArticles) {
         if (likeAbortFlag) break;
 
         const articleUrl = `https://cafe.naver.com/${article.cafeName}/${article.articleId}`;
-        mainWindow.webContents.send('like:log', { msg: `게시글: "${article.subject}"` });
+        safeSend('like:log', { msg: `게시글: "${article.subject}"` });
 
         for (const likerId of likerQueue) {
           if (likeAbortFlag) break;
 
           const account = store.getAccount(likerId);
           if (!account) {
-            mainWindow.webContents.send('like:log', { msg: `계정 "${likerId}" 없음, 건너뜀` });
+            safeSend('like:log', { msg: `계정 "${likerId}" 없음, 건너뜀` });
             done++;
-            mainWindow.webContents.send('like:progress', { current: done, total: totalWork });
+            safeSend('like:progress', { current: done, total: totalWork });
             continue;
           }
 
@@ -473,19 +474,19 @@ function registerHandlers(mainWindow) {
             try {
               const iface = allSettings.ipChange.interfaceName || null;
               const newIp = await ipChanger.changeIP(iface);
-              mainWindow.webContents.send('like:log', { msg: `IP 변경: ${newIp || '확인 불가'}` });
+              safeSend('like:log', { msg: `IP 변경: ${newIp || '확인 불가'}` });
             } catch (e) {
-              mainWindow.webContents.send('like:log', { msg: `IP 변경 실패: ${e.message}` });
+              safeSend('like:log', { msg: `IP 변경 실패: ${e.message}` });
             }
           }
 
           // 로그인
-          mainWindow.webContents.send('like:log', { msg: `${likerId} 로그인...` });
+          safeSend('like:log', { msg: `${likerId} 로그인...` });
           const loginResult = await auth.loginAccount(page, account.id, account.password);
           if (!loginResult.success) {
-            mainWindow.webContents.send('like:log', { msg: `${likerId} 로그인 실패` });
+            safeSend('like:log', { msg: `${likerId} 로그인 실패` });
             done++;
-            mainWindow.webContents.send('like:progress', { current: done, total: totalWork });
+            safeSend('like:progress', { current: done, total: totalWork });
             continue;
           }
 
@@ -493,16 +494,16 @@ function registerHandlers(mainWindow) {
           try {
             const likeResult = await postLiker.likePost(page, articleUrl);
             if (likeResult.alreadyLiked) {
-              mainWindow.webContents.send('like:log', { msg: `${likerId}: 이미 좋아요 누름` });
+              safeSend('like:log', { msg: `${likerId}: 이미 좋아요 누름` });
             } else {
-              mainWindow.webContents.send('like:log', { msg: `${likerId}: 좋아요 완료` });
+              safeSend('like:log', { msg: `${likerId}: 좋아요 완료` });
             }
           } catch (e) {
-            mainWindow.webContents.send('like:log', { msg: `${likerId}: 좋아요 실패 - ${e.message}` });
+            safeSend('like:log', { msg: `${likerId}: 좋아요 실패 - ${e.message}` });
           }
 
           done++;
-          mainWindow.webContents.send('like:progress', { current: done, total: totalWork });
+          safeSend('like:progress', { current: done, total: totalWork });
 
           // 계정 간 대기
           if (!likeAbortFlag) {
@@ -512,11 +513,11 @@ function registerHandlers(mainWindow) {
       }
 
       await browser.close();
-      mainWindow.webContents.send('like:complete', { success: true });
+      safeSend('like:complete', { success: true });
       return { success: true };
     } catch (e) {
       if (browser) await browser.close().catch(() => {});
-      mainWindow.webContents.send('like:complete', { success: false, error: e.message });
+      safeSend('like:complete', { success: false, error: e.message });
       return { success: false, error: e.message };
     }
   });
