@@ -59,9 +59,16 @@ function getNouns() {
 function generateNickname() {
   const adjs = getAdjectives();
   const ns = getNouns();
-  const adj = adjs[Math.floor(Math.random() * adjs.length)];
-  const noun = ns[Math.floor(Math.random() * ns.length)];
-  return adj + noun;
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const mode = Math.floor(Math.random() * 6);
+  switch (mode) {
+    case 0: return pick(adjs);                   // 형용사 단독
+    case 1: return pick(ns);                     // 명사 단독
+    case 2: return pick(adjs) + pick(adjs);      // 형용사+형용사
+    case 3: return pick(ns) + pick(ns);          // 명사+명사
+    case 4: return pick(adjs) + pick(ns);        // 형용사+명사
+    case 5: return pick(ns) + pick(adjs);        // 명사+형용사
+  }
 }
 
 function generateNicknameWithNumber() {
