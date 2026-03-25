@@ -297,6 +297,25 @@ function loadExecutionLog(fileName) {
   return readJSON(path.join(getLogsDir(), fileName), null);
 }
 
+function getDesktopLogDir() {
+  const desktop = app ? app.getPath('desktop') : path.join(require('os').homedir(), 'Desktop');
+  return path.join(desktop, 'NCafeAuto 로그');
+}
+
+function appendDailyLog(lines) {
+  if (!lines || lines.length === 0) return;
+  const logDir = getDesktopLogDir();
+  ensureDir(logDir);
+  const date = new Date().toISOString().slice(0, 10);
+  const filePath = path.join(logDir, `${date}.txt`);
+  const content = lines.join('\n') + '\n\n';
+  try {
+    fs.appendFileSync(filePath, content, 'utf8');
+  } catch (e) {
+    console.error('일별 로그 저장 실패:', e.message);
+  }
+}
+
 // === 크롤 캐시 ===
 
 function saveCrawlCache(cafeId, data) {
@@ -370,7 +389,7 @@ module.exports = {
   loadGlobalManuscripts, saveGlobalManuscripts,
   migrateData, migrateDataV2,
   saveCookies, loadCookies,
-  saveExecutionLog, listExecutionLogs, loadExecutionLog,
+  saveExecutionLog, listExecutionLogs, loadExecutionLog, appendDailyLog,
   saveCrawlCache, loadCrawlCache,
   loadNicknameWords, saveNicknameWords,
   loadDeleteSchedule, saveDeleteSchedule, addDeleteEntry, removeDeleteEntries, getDueDeletes, updateDeleteEntry,

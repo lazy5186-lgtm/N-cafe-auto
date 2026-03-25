@@ -482,12 +482,17 @@ function setupAddAccount() {
 
 
 function setupSettingsToggles() {
-  // IP 상태 이벤트 수신
+  // IP 상태 이벤트 수신 (탭 바 + 설정 탭 모두 표시)
   window.api.onIpStatus((data) => {
     const statusEl = document.getElementById('adb-status');
     if (statusEl) {
       statusEl.textContent = data.msg;
       statusEl.style.color = data.msg.includes('실패') ? '#ef5350' : '#ffa726';
+    }
+    const barEl = document.getElementById('ip-status-bar');
+    if (barEl) {
+      barEl.textContent = data.msg;
+      barEl.style.color = data.msg.includes('실패') ? '#ef5350' : '#ffa726';
     }
   });
 
@@ -538,15 +543,17 @@ function setupSettingsToggles() {
   // IP 변경 테스트
   document.getElementById('btn-test-adb').addEventListener('click', async () => {
     const statusEl = document.getElementById('adb-status');
-    statusEl.textContent = 'IP 변경 중...';
-    statusEl.style.color = '#ffa726';
+    const barEl = document.getElementById('ip-status-bar');
+    const setStatus = (msg, color) => {
+      if (statusEl) { statusEl.textContent = msg; statusEl.style.color = color; }
+      if (barEl) { barEl.textContent = msg; barEl.style.color = color; }
+    };
+    setStatus('IP 변경 중...', '#ffa726');
     const result = await window.api.changeIP(null);
     if (result.success) {
-      statusEl.textContent = `새 IP: ${result.ip || '확인 불가'}`;
-      statusEl.style.color = '#66bb6a';
+      setStatus(`새 IP: ${result.ip || '확인 불가'}`, '#66bb6a');
     } else {
-      statusEl.textContent = `실패: ${result.error}`;
-      statusEl.style.color = '#ef5350';
+      setStatus(`실패: ${result.error}`, '#ef5350');
     }
   });
 
