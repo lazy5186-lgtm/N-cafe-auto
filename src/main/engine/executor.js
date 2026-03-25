@@ -17,7 +17,6 @@ class Executor extends EventEmitter {
     this.logger = new ResultLogger();
     this._pauseResolve = null;
     this._currentBrowser = null;
-    this._logLines = [];
   }
 
   /** 60~100초 랜덤 대기 (작업 간 텀) */
@@ -40,7 +39,7 @@ class Executor extends EventEmitter {
   log(msg) {
     const now = new Date();
     const time = now.toTimeString().slice(0, 8);
-    this._logLines.push(`[${time}] ${msg}`);
+    store.appendDailyLog([`[${time}] ${msg}`]);
     this.emit('log', { msg });
   }
 
@@ -391,9 +390,7 @@ class Executor extends EventEmitter {
     const savedLog = this.logger.save();
     this.state = 'idle';
     this.emit('complete', { log: savedLog });
-    this.log('=== 실행 완료 ===');
-    store.appendDailyLog(this._logLines);
-    this._logLines = [];
+    this.log('=== 실행 완료 ===\n');
     return savedLog;
   }
 }

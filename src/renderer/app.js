@@ -1269,33 +1269,66 @@ function setupEventListeners() {
 // 좋아요 탭
 // =============================================
 
-let _likeArticles = [];
-const _likeCafeCache = {};
-const _likeArticleCache = {}; // 키: accountId||cafeId → 게시글 캐시
+let _likeUrls = []; // URL 문자열 배열
+
+function parseNaverCafeUrls(text) {
+  return text.split(/[\n\r\t]+/)
+    .map(line => line.trim())
+    .filter(line => line.includes('cafe.naver.com'));
+}
+
+function renderLikeUrlList() {
+  const container = document.getElementById('like-article-list');
+  const countEl = document.getElementById('like-article-count');
+  container.innerHTML = '';
+  countEl.textContent = _likeUrls.length;
+
+  if (_likeUrls.length === 0) {
+    container.innerHTML = '<div style="color:#8892b0; font-size:12px;">URL을 입력해주세요.</div>';
+    return;
+  }
+
+  _likeUrls.forEach((url, i) => {
+    const div = document.createElement('label');
+    div.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 4px; cursor:pointer; font-size:13px; border-bottom:1px solid #1b2838;';
+    div.innerHTML = `
+      <input type="checkbox" class="like-article-check" data-index="${i}" checked>
+      <a href="${url}" target="_blank" style="font-size:11px; color:#64ffda; flex-shrink:0; text-decoration:underline; cursor:pointer;">링크</a>
+      <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${url}</span>
+      <button class="btn btn-sm btn-danger like-url-remove" data-index="${i}" style="padding:1px 6px; font-size:10px;">X</button>
+    `;
+    container.appendChild(div);
+  });
+
+  // 개별 삭제 버튼
+  container.querySelectorAll('.like-url-remove').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.index);
+      _likeUrls.splice(idx, 1);
+      renderLikeUrlList();
+    });
+  });
+}
 
 function renderLikeAccountList() {
-  const authorId = document.getElementById('like-author-account').value;
   const container = document.getElementById('like-account-list');
   const mode = document.querySelector('input[name="like-account-mode"]:checked').value;
   container.innerHTML = '';
 
-  const filtered = accounts.filter(a => a.id !== authorId);
-
-  if (filtered.length === 0) {
-    container.innerHTML = '<div style="color:#8892b0; font-size:12px;">작성자를 제외한 계정이 없습니다.</div>';
+  if (accounts.length === 0) {
+    container.innerHTML = '<div style="color:#8892b0; font-size:12px;">등록된 계정이 없습니다.</div>';
     return;
   }
 
-  // 그리드 스타일 초기화
   container.style.display = '';
   container.style.gridTemplateColumns = '';
   container.style.gap = '';
 
   if (mode === 'random') {
-    // 랜덤 모드: 목록 숨기고 요약만 표시
-    container.innerHTML = `<div style="color:#64ffda; font-size:13px; padding:8px 0;">전체 ${filtered.length}개 계정에서 랜덤 선택</div>`;
-    // 숨겨진 체크박스로 전체 계정 등록
-    filtered.forEach(acc => {
+    container.innerHTML = `<div style="color:#64ffda; font-size:13px; padding:8px 0;">전체 ${accounts.length}개 계정에서 랜덤 선택</div>`;
+    accounts.forEach(acc => {
       const input = document.createElement('input');
       input.type = 'checkbox';
       input.className = 'like-account-check';
@@ -1307,12 +1340,11 @@ function renderLikeAccountList() {
     return;
   }
 
-  // 직접 선택 모드: 4열 그리드
   container.style.display = 'grid';
   container.style.gridTemplateColumns = 'repeat(4, 1fr)';
   container.style.gap = '2px 12px';
 
-  filtered.forEach(acc => {
+  accounts.forEach(acc => {
     const label = document.createElement('label');
     label.style.cssText = 'display:flex; align-items:center; gap:4px; padding:3px 0; cursor:pointer; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
     label.innerHTML = `<input type="checkbox" class="like-account-check" value="${acc.id}" checked> ${acc.id}`;
@@ -1320,65 +1352,27 @@ function renderLikeAccountList() {
   });
 }
 
-function renderLikeArticleList() {
-  const container = document.getElementById('like-article-list');
-  container.innerHTML = '';
-
-  if (_likeArticles.length === 0) {
-    container.innerHTML = '<div style="color:#8892b0; font-size:12px;">게시글이 없습니다.</div>';
-    return;
-  }
-
-  _likeArticles.forEach((art, i) => {
-    const div = document.createElement('label');
-    div.style.cssText = 'display:flex; align-items:center; gap:8px; padding:6px 4px; cursor:pointer; font-size:13px; border-bottom:1px solid #1b2838;';
-    const date = art.writeDateTimestamp ? new Date(art.writeDateTimestamp).toLocaleDateString('ko-KR') : '';
-    const articleUrl = art.cafeName && art.articleId ? `https://cafe.naver.com/${art.cafeName}/${art.articleId}` : '';
-    div.innerHTML = `
-      <input type="checkbox" class="like-article-check" data-index="${i}" checked>
-      ${articleUrl
-        ? `<a href="${articleUrl}" target="_blank" style="font-size:11px; color:#64ffda; flex-shrink:0; text-decoration:underline; cursor:pointer;">링크</a>`
-        : ''
-      }
-      <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${art.subject}</span>
-      <span style="font-size:11px; color:#8892b0; flex-shrink:0;">${date}</span>
-    `;
-    container.appendChild(div);
-  });
-}
-
 function setupLikeTab() {
-  // 작성자 계정 드롭다운
-  const authorSelect = document.getElementById('like-author-account');
-  authorSelect.innerHTML = '<option value="">계정 선택...</option>';
-  accounts.forEach(a => {
-    authorSelect.innerHTML += `<option value="${a.id}">${a.id}</option>`;
+  // URL 추가
+  document.getElementById('btn-like-add-urls').addEventListener('click', () => {
+    const input = document.getElementById('like-url-input');
+    const urls = parseNaverCafeUrls(input.value);
+    if (urls.length === 0) return showToast('유효한 네이버 카페 URL이 없습니다.');
+    const before = _likeUrls.length;
+    urls.forEach(url => {
+      if (!_likeUrls.includes(url)) _likeUrls.push(url);
+    });
+    const added = _likeUrls.length - before;
+    document.getElementById('like-url-status').textContent = `${added}개 추가 (중복 ${urls.length - added}개 제외)`;
+    input.value = '';
+    renderLikeUrlList();
   });
 
-  // 작성자 변경 시 계정 목록 갱신 + 카페 자동 불러오기
-  authorSelect.addEventListener('change', async () => {
-    renderLikeAccountList();
-    const accountId = authorSelect.value;
-    if (accountId) {
-      if (_likeCafeCache[accountId]) {
-        renderLikeCafeSelect();
-      } else {
-        // 카페 목록 자동 로드 (원고탭과 동일한 패턴)
-        const statusEl = document.getElementById('like-fetch-status');
-        statusEl.textContent = '카페 불러오는 중...';
-        const result = await window.api.fetchJoinedCafes(accountId);
-        if (result.success) {
-          _likeCafeCache[accountId] = result.cafes;
-          statusEl.textContent = `${result.cafes.length}개 카페`;
-          renderLikeCafeSelect();
-        } else {
-          statusEl.textContent = `실패: ${result.error}`;
-          renderLikeCafeSelect();
-        }
-      }
-    } else {
-      renderLikeCafeSelect();
-    }
+  // 목록 초기화
+  document.getElementById('btn-like-clear-urls').addEventListener('click', () => {
+    _likeUrls = [];
+    renderLikeUrlList();
+    document.getElementById('like-url-status').textContent = '';
   });
 
   // 전체 선택 / 전체 해제
@@ -1389,59 +1383,17 @@ function setupLikeTab() {
     document.querySelectorAll('.like-article-check').forEach(cb => cb.checked = false);
   });
 
-  // 카페 새로고침
-  document.getElementById('btn-like-fetch-cafes').addEventListener('click', async () => {
-    const accountId = authorSelect.value;
-    if (!accountId) return showToast('작성자 계정을 선택하세요.');
-    const statusEl = document.getElementById('like-fetch-status');
-    statusEl.textContent = '카페 불러오는 중...';
-
-    const result = await window.api.fetchJoinedCafes(accountId);
-    if (result.success) {
-      _likeCafeCache[accountId] = result.cafes;
-      statusEl.textContent = `${result.cafes.length}개 카페`;
-      renderLikeCafeSelect();
-    } else {
-      statusEl.textContent = `실패: ${result.error}`;
-    }
-  });
-
-  // 카페 선택 시 자동으로 게시글 불러오기 (캐시 사용)
-  document.getElementById('like-cafe-select').addEventListener('change', async (e) => {
-    const cafeVal = e.target.value;
-    if (!cafeVal) return;
-    const accountId = authorSelect.value;
-    if (!accountId) return;
-    const [cafeName, cafeId] = cafeVal.split('||');
-    const cacheKey = `${accountId}||${cafeId}`;
-
-    if (_likeArticleCache[cacheKey]) {
-      // 캐시 사용
-      _likeArticles = _likeArticleCache[cacheKey];
-      document.getElementById('like-fetch-status').textContent = `${_likeArticles.length}개 게시글 (캐시)`;
-      renderLikeArticleList();
-    } else {
-      await fetchLikeArticles(accountId, cafeName, cafeId);
-    }
-  });
-
-  // 게시글 불러오기 버튼 (강제 새로고침)
-  document.getElementById('btn-like-fetch-articles').addEventListener('click', async () => {
-    const accountId = authorSelect.value;
-    const cafeVal = document.getElementById('like-cafe-select').value;
-    if (!accountId) return showToast('작성자 계정을 선택하세요.');
-    if (!cafeVal) return showToast('카페를 선택하세요.');
-
-    const [cafeName, cafeId] = cafeVal.split('||');
-    await fetchLikeArticles(accountId, cafeName, cafeId);
-  });
-
-  // 모드 변경 시 계정 목록 다시 렌더링
+  // 모드 변경 시 계정 목록 + UI 토글
+  function updateLikeModeUI() {
+    const mode = document.querySelector('input[name="like-account-mode"]:checked').value;
+    document.getElementById('like-count-wrap').style.display = mode === 'random' ? 'inline-flex' : 'none';
+    document.getElementById('like-select-all-wrap').style.display = mode === 'manual' ? 'inline' : 'none';
+    renderLikeAccountList();
+  }
   document.querySelectorAll('input[name="like-account-mode"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      renderLikeAccountList();
-    });
+    radio.addEventListener('change', updateLikeModeUI);
   });
+  updateLikeModeUI();
 
   // 전체 선택 (직접 선택 모드에서만 유효)
   document.getElementById('like-select-all-accounts').addEventListener('change', (e) => {
@@ -1452,13 +1404,13 @@ function setupLikeTab() {
 
   // 좋아요 시작
   document.getElementById('btn-like-start').addEventListener('click', async () => {
-    const selectedArticles = [];
+    const selectedUrls = [];
     document.querySelectorAll('.like-article-check:checked').forEach(cb => {
       const idx = parseInt(cb.dataset.index);
-      if (_likeArticles[idx]) selectedArticles.push(_likeArticles[idx]);
+      if (_likeUrls[idx]) selectedUrls.push(_likeUrls[idx]);
     });
 
-    if (selectedArticles.length === 0) return showToast('좋아요할 게시글을 선택하세요.');
+    if (selectedUrls.length === 0) return showToast('좋아요할 게시글을 선택하세요.');
 
     const likerIds = [];
     document.querySelectorAll('.like-account-check:checked').forEach(cb => {
@@ -1477,7 +1429,7 @@ function setupLikeTab() {
     document.getElementById('btn-like-stop').disabled = false;
 
     await window.api.executeLikes({
-      targetArticles: selectedArticles,
+      targetUrls: selectedUrls,
       likerAccountIds: likerIds,
       randomMode: mode === 'random',
       likeCount,
@@ -1518,46 +1470,7 @@ function setupLikeTab() {
 
   // 탭 전환 시 계정 목록 갱신
   document.querySelector('.tab-btn[data-tab="like"]').addEventListener('click', () => {
-    // 계정 목록 최신화
-    const authorSelect = document.getElementById('like-author-account');
-    const currentVal = authorSelect.value;
-    authorSelect.innerHTML = '<option value="">계정 선택...</option>';
-    accounts.forEach(a => {
-      authorSelect.innerHTML += `<option value="${a.id}" ${a.id === currentVal ? 'selected' : ''}>${a.id}</option>`;
-    });
     renderLikeAccountList();
-  });
-}
-
-async function fetchLikeArticles(accountId, cafeName, cafeId) {
-  const statusEl = document.getElementById('like-fetch-status');
-  statusEl.textContent = '게시글 불러오는 중...';
-
-  const result = await window.api.fetchMemberArticles(accountId, cafeId);
-  if (result.success) {
-    _likeArticles = result.articles.map(a => ({ ...a, cafeName, cafeId }));
-    const cacheKey = `${accountId}||${cafeId}`;
-    _likeArticleCache[cacheKey] = _likeArticles;
-    statusEl.textContent = `${result.articles.length}개 게시글 (총 ${result.totalCount}개)`;
-    renderLikeArticleList();
-  } else {
-    statusEl.textContent = `실패: ${result.error}`;
-    _likeArticles = [];
-    renderLikeArticleList();
-  }
-}
-
-function renderLikeCafeSelect() {
-  const accountId = document.getElementById('like-author-account').value;
-  const select = document.getElementById('like-cafe-select');
-  select.innerHTML = '<option value="">카페 선택...</option>';
-
-  const cafes = _likeCafeCache[accountId] || [];
-  cafes.forEach(cafe => {
-    const opt = document.createElement('option');
-    opt.value = `${cafe.cafeName}||${cafe.cafeId}`;
-    opt.textContent = `${cafe.cafeTitle} (${cafe.cafeName})`;
-    select.appendChild(opt);
   });
 }
 

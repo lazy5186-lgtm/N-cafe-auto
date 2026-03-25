@@ -426,7 +426,7 @@ function registerHandlers(mainWindow) {
   });
 
   ipcMain.handle('like:execute', async (_e, config) => {
-    // config: { targetArticles: [{articleId, subject, cafeName, cafeId}], likerAccountIds: [], randomMode: boolean, likeCount: number, settings }
+    // config: { targetUrls: [url], likerAccountIds: [], randomMode: boolean, likeCount: number }
     likeAbortFlag = false;
     let browser = null;
 
@@ -435,28 +435,28 @@ function registerHandlers(mainWindow) {
       browser = await browserManager.launchBrowser();
       const page = await browserManager.createPage(browser);
 
-      const { targetArticles, likerAccountIds, randomMode, likeCount } = config;
+      const { targetUrls, likerAccountIds, randomMode, likeCount } = config;
 
       // 좋아요 누를 계정 목록 생성
       let likerQueue = [];
       if (randomMode) {
-        // 랜덤 모드: likerAccountIds에서 likeCount만큼 랜덤 선택 (중복 허용하지 않음)
+        // 랜덤 모드: 전체 계정에서 likeCount만큼 랜덤 선택
         const shuffled = [...likerAccountIds].sort(() => Math.random() - 0.5);
         likerQueue = shuffled.slice(0, Math.min(likeCount, shuffled.length));
       } else {
-        likerQueue = likerAccountIds.slice(0, likeCount);
+        // 직접 선택 모드: 선택한 계정 전부 사용
+        likerQueue = [...likerAccountIds];
       }
 
-      const totalWork = targetArticles.length * likerQueue.length;
+      const totalWork = targetUrls.length * likerQueue.length;
       let done = 0;
 
-      safeSend('like:log', { msg: `좋아요 시작: ${targetArticles.length}개 게시글 × ${likerQueue.length}개 계정` });
+      safeSend('like:log', { msg: `좋아요 시작: ${targetUrls.length}개 게시글 × ${likerQueue.length}개 계정` });
 
-      for (const article of targetArticles) {
+      for (const articleUrl of targetUrls) {
         if (likeAbortFlag) break;
 
-        const articleUrl = `https://cafe.naver.com/${article.cafeName}/${article.articleId}`;
-        safeSend('like:log', { msg: `게시글: "${article.subject}"` });
+        safeSend('like:log', { msg: `게시글: ${articleUrl}` });
 
         for (const likerId of likerQueue) {
           if (likeAbortFlag) break;

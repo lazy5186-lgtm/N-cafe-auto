@@ -295,53 +295,47 @@
         <div class="section-card">
           <div class="section-title">좋아요 설정</div>
 
-          <!-- 게시글 작성자 계정 + 카페 선택 -->
+          <!-- 게시글 URL 직접 입력 -->
           <div class="form-group">
-            <label>게시글 작성자 계정</label>
-            <div class="form-row" style="gap:8px;">
-              <select class="input" id="like-author-account" style="width:200px;">
-                <option value="">계정 선택...</option>
-              </select>
-              <select class="input" id="like-cafe-select" style="flex:1;">
-                <option value="">카페 선택...</option>
-              </select>
-              <button class="btn btn-sm btn-secondary" id="btn-like-fetch-cafes">카페 새로고침</button>
-              <button class="btn btn-sm btn-primary" id="btn-like-fetch-articles">게시글 불러오기</button>
-              <span id="like-fetch-status" style="font-size:12px; color:#8892b0;"></span>
+            <label>게시글 URL 입력</label>
+            <div style="font-size:11px; color:#8892b0; margin-bottom:4px;">네이버 카페 게시글 URL을 한 줄에 하나씩 입력하세요. 엑셀에서 복사 붙여넣기도 가능합니다.</div>
+            <textarea class="input" id="like-url-input" placeholder="https://cafe.naver.com/cafename/123&#10;https://cafe.naver.com/cafename/456&#10;..." style="width:100%; height:100px; resize:vertical; font-size:12px;"></textarea>
+            <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
+              <button class="btn btn-sm btn-primary" id="btn-like-add-urls">URL 추가</button>
+              <button class="btn btn-sm btn-secondary" id="btn-like-clear-urls">목록 초기화</button>
+              <span id="like-url-status" style="font-size:12px; color:#8892b0;"></span>
             </div>
           </div>
 
           <!-- 게시글 목록 -->
           <div class="form-group">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-              <label style="margin-bottom:0;">게시글 선택 (작성자의 게시글 목록)</label>
+              <label style="margin-bottom:0;">게시글 목록 (<span id="like-article-count">0</span>개)</label>
               <div style="display:flex; gap:4px;">
                 <button class="btn btn-sm btn-secondary" id="btn-like-select-all">전체 선택</button>
                 <button class="btn btn-sm btn-secondary" id="btn-like-deselect-all">전체 해제</button>
               </div>
             </div>
             <div class="like-article-list" id="like-article-list" style="max-height:200px; overflow-y:auto; background:#0d1b2a; border:1px solid #1b2838; border-radius:6px; padding:8px;">
-              <div style="color:#8892b0; font-size:12px;">게시글을 불러와주세요.</div>
+              <div style="color:#8892b0; font-size:12px;">URL을 입력해주세요.</div>
             </div>
           </div>
 
-          <!-- 좋아요 설정 -->
-          <div class="form-group">
-            <label>좋아요 횟수</label>
-            <input type="number" class="input" id="like-count" value="1" min="1" style="width:100px;">
-            <span style="font-size:12px; color:#8892b0; margin-left:8px;">선택한 각 게시글에 이 횟수만큼 좋아요</span>
-          </div>
-
+          <!-- 좋아요 계정 설정 -->
           <div class="form-group">
             <label>좋아요 누를 계정</label>
-            <div class="form-row" style="gap:8px; margin-bottom:8px;">
+            <div class="form-row" style="gap:8px; margin-bottom:8px; align-items:center;">
               <label style="cursor:pointer; font-size:13px;">
                 <input type="radio" name="like-account-mode" value="random" checked> 랜덤 선택
               </label>
-              <label style="cursor:pointer; font-size:13px;">
+              <span id="like-count-wrap" style="display:inline-flex; align-items:center; gap:4px;">
+                <input type="number" class="input" id="like-count" value="1" min="1" style="width:60px; padding:3px 6px; font-size:12px;">
+                <span style="font-size:12px; color:#8892b0;">명</span>
+              </span>
+              <label style="cursor:pointer; font-size:13px; margin-left:8px;">
                 <input type="radio" name="like-account-mode" value="manual"> 직접 선택
               </label>
-              <label style="font-size:12px; color:#8892b0; margin-left:8px;">
+              <label id="like-select-all-wrap" style="font-size:12px; color:#8892b0; margin-left:8px; display:none;">
                 <input type="checkbox" id="like-select-all-accounts"> 전체 선택
               </label>
             </div>
