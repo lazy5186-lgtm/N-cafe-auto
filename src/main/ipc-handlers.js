@@ -39,6 +39,11 @@ function registerHandlers(mainWindow) {
     return { success: ok };
   });
 
+  ipcMain.handle('accounts:delete-all', () => {
+    store.saveAccounts([]);
+    return { success: true };
+  });
+
   ipcMain.handle('accounts:has-cookies', (_e, accountId) => {
     const cookies = store.loadCookies(accountId);
     return !!(cookies && cookies.length > 0);
@@ -493,7 +498,9 @@ function registerHandlers(mainWindow) {
           // 좋아요 클릭
           try {
             const likeResult = await postLiker.likePost(page, articleUrl);
-            if (likeResult.alreadyLiked) {
+            if (likeResult.isAuthor) {
+              safeSend('like:log', { msg: `${likerId}: 본인 글 → 건너뜀` });
+            } else if (likeResult.alreadyLiked) {
               safeSend('like:log', { msg: `${likerId}: 이미 좋아요 누름` });
             } else {
               safeSend('like:log', { msg: `${likerId}: 좋아요 완료` });
@@ -616,7 +623,7 @@ function registerHandlers(mainWindow) {
     }
   });
 
-  // === 원고 TXT 내보내기 ===
+  // === 전체원고 TXT 내보내기 ===
   ipcMain.handle('data:export-manuscripts-txt', async () => {
     try {
       const { manuscripts, presets } = store.loadGlobalManuscripts();
@@ -624,9 +631,23 @@ function registerHandlers(mainWindow) {
         return { success: false, error: '내보낼 원고가 없습니다.' };
       }
 
-      const lines = [];
-      manuscripts.forEach((ms, i) => {
-        lines.push(`[원고 ${i + 1}]`);
+      const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: '전체원고 내보내기 폴더 선택',
+        properties: ['openDirectory'],
+      });
+      if (!filePaths || filePaths.length === 0) return { success: false, cancelled: true };
+
+      const fs = require('fs');
+      const path = require('path');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const exportDir = path.join(filePaths[0], dateStr);
+      if (!fs.existsSync(exportDir)) {
+        fs.mkdirSync(exportDir, { recursive: true });
+      }
+
+      function buildManuscriptText(ms, index) {
+        const lines = [];
+        lines.push(`[원고 ${index + 1}]`);
         lines.push(`계정: ${ms.accountId || '없음'}`);
         lines.push(`카페: ${ms.cafeName || '없음'} (${ms.cafeId || ''})`);
         const boardNames = (ms.boards || []).map(b => b.menuName).join(', ');
@@ -636,12 +657,10 @@ function registerHandlers(mainWindow) {
         lines.push(`활성화: ${ms.enabled !== false ? 'ON' : 'OFF'}`);
         lines.push('');
 
-        // 제목
         const post = ms.post || {};
         lines.push(`[제목] ${post.title || '(제목 없음)'}`);
         lines.push('');
 
-        // 본문
         lines.push('[본문]');
         const segments = post.bodySegments || [];
         for (const seg of segments) {
@@ -653,7 +672,6 @@ function registerHandlers(mainWindow) {
         }
         lines.push('');
 
-        // 댓글
         const comments = ms.comments || [];
         if (comments.length > 0) {
           lines.push('[댓글]');
@@ -663,7 +681,6 @@ function registerHandlers(mainWindow) {
             if (c.text) lines.push(`  ${c.text}`);
             if (c.imagePath) lines.push(`  [이미지: ${c.imagePath}]`);
 
-            // 답글 (재귀)
             function writeReplies(replies, depth) {
               if (!replies) return;
               const indent = '  '.repeat(depth + 1);
@@ -680,19 +697,40 @@ function registerHandlers(mainWindow) {
           lines.push('');
         }
 
-        lines.push('─'.repeat(40));
-        lines.push('');
+        return lines.join('\n');
+      }
+
+      manuscripts.forEach((ms, i) => {
+        const text = buildManuscriptText(ms, i);
+        const title = (ms.post && ms.post.title) || `원고_${i + 1}`;
+        const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_');
+        const filePath = path.join(exportDir, `${safeTitle}.txt`);
+        fs.writeFileSync(filePath, '\uFEFF' + text, 'utf8');
       });
 
-      const { filePath } = await dialog.showSaveDialog(mainWindow, {
-        defaultPath: `NCafeAuto-원고-${new Date().toISOString().slice(0, 10)}.txt`,
-        filters: [{ name: 'Text', extensions: ['txt'] }],
+      return { success: true, filePath: exportDir, count: manuscripts.length };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // === 개별 원고 TXT 내보내기 ===
+  ipcMain.handle('data:export-manuscript-single', async (_e, data) => {
+    try {
+      const { text, title } = data;
+      const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+        title: '원고 내보내기 폴더 선택',
+        properties: ['openDirectory'],
       });
-      if (!filePath) return { success: false, cancelled: true };
+      if (!filePaths || filePaths.length === 0) return { success: false, cancelled: true };
 
       const fs = require('fs');
-      fs.writeFileSync(filePath, '\uFEFF' + lines.join('\n'), 'utf8');
-      return { success: true, filePath, count: manuscripts.length };
+      const path = require('path');
+      // 파일명에 사용 불가 문자 제거
+      const safeTitle = (title || '제목없음').replace(/[\\/:*?"<>|]/g, '_');
+      const filePath = path.join(filePaths[0], `${safeTitle}.txt`);
+      fs.writeFileSync(filePath, '\uFEFF' + text, 'utf8');
+      return { success: true, filePath };
     } catch (e) {
       return { success: false, error: e.message };
     }

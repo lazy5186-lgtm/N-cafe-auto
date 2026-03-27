@@ -486,6 +486,17 @@ function setupAddAccount() {
     btn.textContent = '전체 로그인 테스트';
     showToast(`로그인 테스트 완료: 성공 ${success}, 실패 ${fail}`);
   });
+
+  // 전체 계정 삭제
+  document.getElementById('btn-delete-all-accounts').addEventListener('click', async () => {
+    if (accounts.length === 0) return showToast('삭제할 계정이 없습니다.');
+    if (!confirm('모든 계정을 삭제하시겠습니까?')) { window.focus(); return; }
+    await window.api.deleteAllAccounts();
+    accounts = [];
+    renderAccountsTable();
+    showToast('모든 계정이 삭제되었습니다.');
+    window.focus();
+  });
 }
 
 
@@ -958,6 +969,61 @@ async function saveAllManuscripts() {
   await window.api.saveManuscripts({ manuscripts, presets });
 }
 
+function buildSingleManuscriptText(ms, index) {
+  const lines = [];
+  lines.push(`[원고 ${index + 1}]`);
+  lines.push(`계정: ${ms.accountId || '없음'}`);
+  lines.push(`카페: ${ms.cafeName || '없음'} (${ms.cafeId || ''})`);
+  const boardNames = (ms.boards || []).map(b => b.menuName).join(', ');
+  lines.push(`게시판: ${boardNames || ms.boardName || '없음'}`);
+  lines.push(`공개설정: ${ms.visibility === 'member' ? '멤버공개' : '전체공개'}`);
+  lines.push(`랜덤닉네임: ${ms.randomNickname ? 'ON' : 'OFF'}`);
+  lines.push(`활성화: ${ms.enabled !== false ? 'ON' : 'OFF'}`);
+  lines.push('');
+
+  const post = ms.post || {};
+  lines.push(`[제목] ${post.title || '(제목 없음)'}`);
+  lines.push('');
+
+  lines.push('[본문]');
+  const segments = post.bodySegments || [];
+  for (const seg of segments) {
+    if (seg.type === 'text') {
+      lines.push(seg.content || '');
+    } else if (seg.type === 'image') {
+      lines.push(`[이미지: ${seg.filePath || '경로 없음'}]`);
+    }
+  }
+  lines.push('');
+
+  const comments = ms.comments || [];
+  if (comments.length > 0) {
+    lines.push('[댓글]');
+    comments.forEach((c, ci) => {
+      const cNick = c.randomNickname ? ', 랜덤닉네임: ON' : '';
+      lines.push(`  댓글 ${ci + 1} (계정: ${c.accountId || '없음'}${cNick})`);
+      if (c.text) lines.push(`  ${c.text}`);
+      if (c.imagePath) lines.push(`  [이미지: ${c.imagePath}]`);
+
+      function writeReplies(replies, depth) {
+        if (!replies) return;
+        const indent = '  '.repeat(depth + 1);
+        replies.forEach((r, ri) => {
+          const rNick = r.randomNickname ? ', 랜덤닉네임: ON' : '';
+          lines.push(`${indent}답글 ${ri + 1} (계정: ${r.accountId || '없음'}${rNick})`);
+          if (r.text) lines.push(`${indent}${r.text}`);
+          if (r.imagePath) lines.push(`${indent}[이미지: ${r.imagePath}]`);
+          if (r.replies) writeReplies(r.replies, depth + 1);
+        });
+      }
+      writeReplies(c.replies, 1);
+    });
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
 function setupManuscriptsTab() {
   // 원고 추가
   document.getElementById('btn-add-ms').addEventListener('click', () => {
@@ -1076,6 +1142,38 @@ function setupManuscriptsTab() {
     );
   });
 
+  // 전체 원고 삭제
+  document.getElementById('btn-delete-all-ms').addEventListener('click', async () => {
+    if (manuscripts.length === 0) return showToast('삭제할 원고가 없습니다.');
+    if (!confirm('모든 원고를 삭제하시겠습니까?')) { window.focus(); return; }
+    manuscripts = [];
+    selectedMsIndex = -1;
+    document.getElementById('ms-editor').style.display = 'none';
+    await window.api.saveManuscripts({ manuscripts: [], presets });
+    renderMsList();
+    showToast('모든 원고가 삭제되었습니다.');
+    window.focus();
+  });
+
+  // 개별 원고 내보내기
+  document.getElementById('btn-export-ms-single').addEventListener('click', async () => {
+    if (selectedMsIndex < 0) return showToast('내보낼 원고를 선택하세요.');
+    collectMsData();
+    await saveAllManuscripts();
+
+    const ms = manuscripts[selectedMsIndex];
+    const text = buildSingleManuscriptText(ms, selectedMsIndex);
+    const title = (ms.post && ms.post.title) || '제목없음';
+
+    const result = await window.api.exportManuscriptSingle({ text, title });
+    if (result.cancelled) return;
+    if (result.success) {
+      showToast('원고 내보내기 완료');
+    } else {
+      showToast('내보내기 실패: ' + (result.error || '알 수 없는 오류'));
+    }
+  });
+
   // 프리셋
   setupPresets();
 }
@@ -1099,14 +1197,14 @@ function renderPresetSelect() {
 function setupPresets() {
   renderPresetSelect();
 
-  // 원고 TXT 내보내기
+  // 전체원고 내보내기
   document.getElementById('btn-ms-export-txt').addEventListener('click', async () => {
     if (selectedMsIndex >= 0) collectMsData();
     await saveAllManuscripts();
     const result = await window.api.exportManuscriptsTxt();
     if (result.cancelled) return;
     if (result.success) {
-      showToast(`원고 ${result.count}개 TXT 내보내기 완료`);
+      showToast(`원고 ${result.count}개 내보내기 완료`);
     } else {
       showToast('내보내기 실패: ' + (result.error || '알 수 없는 오류'));
     }
@@ -1648,7 +1746,7 @@ async function renderDeleteTable() {
     const date = entry.createdAt ? new Date(entry.createdAt).toLocaleString('ko-KR') : '';
 
     tr.innerHTML = `
-      <td><input type="checkbox" class="delete-check" data-url="${entry.postUrl}" ${entry.status === 'deleted' ? 'disabled' : ''}></td>
+      <td><input type="checkbox" class="delete-check" data-url="${entry.postUrl}" data-status="${entry.status || 'posted'}"></td>
       <td>${entry.accountId || ''}</td>
       <td>${entry.postTitle || ''}</td>
       <td>${entry.postUrl ? `<a href="#" class="result-link" data-url="${entry.postUrl}" style="font-size:11px;">${entry.postUrl.substring(0, 45)}...</a>` : '-'}</td>
@@ -1675,15 +1773,17 @@ function getSelectedDeleteUrls() {
 function setupDeleteTab() {
   // 전체 선택
   document.getElementById('delete-select-all').addEventListener('change', (e) => {
-    document.querySelectorAll('.delete-check:not(:disabled)').forEach(cb => {
+    document.querySelectorAll('.delete-check').forEach(cb => {
       cb.checked = e.target.checked;
     });
   });
 
-  // 선택 삭제 (실제 네이버에서 삭제)
+  // 선택 삭제 (실제 네이버에서 삭제) — 이미 삭제된 항목 제외
   document.getElementById('btn-delete-selected').addEventListener('click', async () => {
-    const urls = getSelectedDeleteUrls();
-    if (urls.length === 0) return showToast('삭제할 게시글을 선택하세요.');
+    const urls = Array.from(document.querySelectorAll('.delete-check:checked'))
+      .filter(cb => cb.dataset.status !== 'deleted')
+      .map(cb => cb.dataset.url);
+    if (urls.length === 0) return showToast('삭제할 게시글을 선택하세요 (이미 삭제된 항목은 제외됩니다).');
     if (!confirm(`선택한 ${urls.length}개 게시글을 네이버에서 삭제하시겠습니까?`)) { window.focus(); return; }
 
     const statusEl = document.getElementById('delete-status');

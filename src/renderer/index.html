@@ -35,7 +35,10 @@
         <div class="section-card">
           <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
             계정 관리
-            <button id="btn-login-all" class="btn btn-sm btn-primary">전체 로그인 테스트</button>
+            <div style="display:flex; gap:6px;">
+              <button id="btn-login-all" class="btn btn-sm btn-primary">전체 로그인 테스트</button>
+              <button id="btn-delete-all-accounts" class="btn btn-sm btn-danger">전체 삭제</button>
+            </div>
           </div>
           <div class="accounts-scroll">
             <table class="data-table">
@@ -145,7 +148,7 @@
             <span style="margin-left:auto;"></span>
             <input type="text" class="input" id="preset-name-input" placeholder="프리셋 이름" style="width:160px;">
             <button class="btn btn-sm btn-success" id="btn-preset-save">현재 원고 저장</button>
-            <button class="btn btn-sm btn-secondary" id="btn-ms-export-txt">원고 TXT 내보내기</button>
+            <button class="btn btn-sm btn-secondary" id="btn-ms-export-txt">전체원고 내보내기</button>
           </div>
         </div>
 
@@ -156,7 +159,10 @@
             <div class="ms-list-panel">
               <div class="ms-list-header">
                 <strong>원고 목록</strong>
-                <button class="btn btn-sm btn-primary" id="btn-add-ms">+ 추가</button>
+                <div style="display:flex; gap:6px;">
+                  <button class="btn btn-sm btn-primary" id="btn-add-ms">+ 추가</button>
+                  <button class="btn btn-sm btn-danger" id="btn-delete-all-ms">전체 삭제</button>
+                </div>
               </div>
               <div class="ms-list" id="ms-list"></div>
             </div>
@@ -165,6 +171,7 @@
                 <h3>원고 편집</h3>
                 <div style="display:flex; gap:8px; align-items:center;">
                   <button class="btn btn-success btn-sm" id="btn-save-ms-top">원고 저장</button>
+                  <button class="btn btn-secondary btn-sm" id="btn-export-ms-single">원고 내보내기</button>
                   <button class="btn btn-danger btn-sm" id="btn-delete-ms-top">삭제</button>
                   <label class="toggle-label" style="margin-left:8px;">
                     <input type="checkbox" id="ms-enabled" checked> 활성화
@@ -276,10 +283,7 @@
         <div class="section-card">
           <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
             게시글 삭제 관리
-            <div style="display:flex; flex-direction:column; gap:4px;">
-              <button class="btn btn-sm btn-primary" id="btn-delete-selected">선택 삭제</button>
-              <button class="btn btn-sm btn-danger" id="btn-delete-remove-selected">목록에서 제거</button>
-            </div>
+            <button class="btn btn-sm btn-primary" id="btn-delete-selected">선택 삭제</button>
           </div>
           <div class="form-row" style="margin-bottom:8px; align-items:center; gap:8px;">
             <label style="font-size:12px; color:#8892b0;">
@@ -288,19 +292,24 @@
             <span style="flex:1;"></span>
             <span id="delete-status" style="font-size:12px; color:#8892b0;"></span>
           </div>
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th style="width:30px;"></th>
-                <th>계정</th>
-                <th>제목</th>
-                <th>URL</th>
-                <th>게시일</th>
-                <th>상태</th>
-              </tr>
-            </thead>
-            <tbody id="delete-tbody"></tbody>
-          </table>
+          <div style="max-height:400px; overflow-y:auto; border:1px solid #1b2838; border-radius:4px;">
+            <table class="data-table" style="margin:0;">
+              <thead>
+                <tr>
+                  <th style="width:30px;"></th>
+                  <th>계정</th>
+                  <th>제목</th>
+                  <th>URL</th>
+                  <th>게시일</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody id="delete-tbody"></tbody>
+            </table>
+          </div>
+          <div style="margin-top:8px; text-align:right;">
+            <button class="btn btn-sm btn-danger" id="btn-delete-remove-selected">목록에서 제거</button>
+          </div>
         </div>
       </div>
 

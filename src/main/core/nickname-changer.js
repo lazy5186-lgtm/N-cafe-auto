@@ -186,11 +186,12 @@ async function changeNickname(page, browser, cafeId, newNickname) {
       return { success: false, error: '별명 입력 필드를 찾을 수 없습니다' };
     }
 
-    // 6. 별명 입력 + 중복 시 재시도
+    // 6. 별명 입력 + 중복 시 재시도 (커스텀 닉네임 중복 시 랜덤으로 전환)
     const isRandom = newNickname === 'random';
-    const nickGen = isRandom ? require('./nickname-generator') : null;
-    const maxAttempts = isRandom ? 5 : 1;
+    const nickGen = require('./nickname-generator');
+    const maxAttempts = 5;
     let finalNickname = isRandom ? nickGen.generateNickname() : newNickname;
+    let switchedToRandom = false;
 
     const clearAndType = async (nick) => {
       const deleteBtn = await popupPage.$('.profile_form .btn_delete');
@@ -239,9 +240,13 @@ async function changeNickname(page, browser, cafeId, newNickname) {
         break;
       }
 
-      if (result === 'duplicate' && isRandom && attempt < maxAttempts) {
-        console.log(`"${finalNickname}" 중복, 재시도...`);
+      if (result === 'duplicate' && attempt < maxAttempts) {
+        if (!isRandom && !switchedToRandom) {
+          console.log(`"${finalNickname}" 중복 → 랜덤 닉네임으로 전환`);
+          switchedToRandom = true;
+        }
         finalNickname = nickGen.generateNicknameWithNumber();
+        console.log(`재시도: "${finalNickname}"`);
         continue;
       }
 

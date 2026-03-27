@@ -20,6 +20,18 @@ async function likePost(page, articleUrl) {
   }
   console.log('iframe 접근 성공');
 
+  // 작성자 본인 여부 확인 (수정/삭제 버튼 존재 시 작성자)
+  const isAuthor = await frame.evaluate(() => {
+    const editBtn = document.querySelector('.article_btns .btn_edit, .ArticleTool .edit_link, a[class*="edit"], button[class*="edit"]');
+    const deleteBtn = document.querySelector('.article_btns .btn_delete, .ArticleTool .delete_link, a[class*="delete"], button[class*="delete"]');
+    return !!(editBtn || deleteBtn);
+  });
+
+  if (isAuthor) {
+    console.log('작성자 본인 → 좋아요 건너뜀');
+    return { success: false, isAuthor: true };
+  }
+
   // 1단계: 좋아요 버튼 찾기 + 클릭 전 상태 확인
   const beforeState = await frame.evaluate(() => {
     const likeSelectors = [

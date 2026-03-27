@@ -84,6 +84,8 @@ contextBridge.exposeInMainWorld('api', {
   exportData: () => ipcRenderer.invoke('data:export'),
   importData: () => ipcRenderer.invoke('data:import'),
   exportManuscriptsTxt: () => ipcRenderer.invoke('data:export-manuscripts-txt'),
+  exportManuscriptSingle: (data) => ipcRenderer.invoke('data:export-manuscript-single', data),
+  deleteAllAccounts: () => ipcRenderer.invoke('accounts:delete-all'),
 
   // 유틸
   selectImage: () => ipcRenderer.invoke('util:select-image'),
