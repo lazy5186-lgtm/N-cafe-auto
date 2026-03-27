@@ -183,6 +183,22 @@ for (const relFile of RENDERER_FILES) {
   console.log(`  OK: ${relFile}`);
 }
 
+// Node-target obfuscation options (no deadCodeInjection — causes cross-scope variable errors)
+const nodeObfuscatorOptions = {
+  compact: true,
+  controlFlowFlattening: true,
+  controlFlowFlatteningThreshold: 0.5,
+  deadCodeInjection: false,
+  stringArray: true,
+  stringArrayRotate: true,
+  stringArrayShuffle: true,
+  stringArrayThreshold: 0.75,
+  splitStrings: true,
+  splitStringsChunkLength: 10,
+  selfDefending: false,
+  target: 'node',
+};
+
 // Obfuscate Puppeteer files (target: 'node' — use page.evaluate, can't be bytenode)
 for (const relFile of PUPPETEER_FILES) {
   const absFile = path.join(DIST_SRC, relFile);
@@ -192,10 +208,7 @@ for (const relFile of PUPPETEER_FILES) {
   }
 
   const source = fs.readFileSync(absFile, 'utf-8');
-  const result = JavaScriptObfuscator.obfuscate(source, {
-    ...obfuscatorOptions,
-    target: 'node',
-  });
+  const result = JavaScriptObfuscator.obfuscate(source, nodeObfuscatorOptions);
   fs.writeFileSync(absFile, result.getObfuscatedCode(), 'utf-8');
   console.log(`  OK (puppeteer): ${relFile}`);
 }
@@ -209,10 +222,7 @@ for (const relFile of PRELOAD_FILES) {
   }
 
   const source = fs.readFileSync(absFile, 'utf-8');
-  const result = JavaScriptObfuscator.obfuscate(source, {
-    ...obfuscatorOptions,
-    target: 'node',
-  });
+  const result = JavaScriptObfuscator.obfuscate(source, nodeObfuscatorOptions);
   fs.writeFileSync(absFile, result.getObfuscatedCode(), 'utf-8');
   console.log(`  OK (preload): ${relFile}`);
 }
