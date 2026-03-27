@@ -154,18 +154,19 @@ if (fs.existsSync(compileHelperPath)) {
 
 console.log('[4/6] Obfuscating renderer JS ...');
 
+// Renderer obfuscation: safe options (variable rename + string encryption)
+// deadCodeInjection/controlFlowFlattening cause _0x... undefined errors
 const obfuscatorOptions = {
   compact: true,
-  controlFlowFlattening: true,
-  controlFlowFlatteningThreshold: 0.5,
-  deadCodeInjection: true,
-  deadCodeInjectionThreshold: 0.2,
+  controlFlowFlattening: false,
+  deadCodeInjection: false,
   stringArray: true,
+  stringArrayEncoding: ['base64'],
   stringArrayRotate: true,
   stringArrayShuffle: true,
   stringArrayThreshold: 0.75,
-  splitStrings: true,
-  splitStringsChunkLength: 10,
+  splitStrings: false,
+  renameGlobals: false,
   selfDefending: false,
   target: 'browser',
 };
@@ -183,17 +184,18 @@ for (const relFile of RENDERER_FILES) {
   console.log(`  OK: ${relFile}`);
 }
 
-// Node-target obfuscation options (no deadCodeInjection/controlFlowFlattening — breaks async/await scope)
+// Node-target obfuscation: safe options only (variable rename + string encryption)
 const nodeObfuscatorOptions = {
   compact: true,
   controlFlowFlattening: false,
   deadCodeInjection: false,
   stringArray: true,
+  stringArrayEncoding: ['base64'],
   stringArrayRotate: true,
   stringArrayShuffle: true,
   stringArrayThreshold: 0.75,
-  splitStrings: true,
-  splitStringsChunkLength: 10,
+  splitStrings: false,
+  renameGlobals: false,
   selfDefending: false,
   target: 'node',
 };
