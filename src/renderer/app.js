@@ -381,10 +381,16 @@ async function renderAccountsTable() {
   tbody.querySelectorAll('.btn-delete-account').forEach(btn => {
     btn.addEventListener('click', async () => {
       const id = btn.dataset.id;
-      if (!confirm(`"${id}" 계정을 삭제하시겠습니까?`)) return;
+      if (!confirm(`"${id}" 계정을 삭제하시겠습니까?`)) {
+        window.focus();
+        return;
+      }
       await window.api.deleteAccount(id);
       accounts = accounts.filter(a => a.id !== id);
-      renderAccountsTable();
+      // 삭제 후 즉시 테이블 갱신 (쿠키 확인 없이 — 딜레이 방지)
+      const row = btn.closest('tr');
+      if (row) row.remove();
+      window.focus();
     });
   });
 }
@@ -593,7 +599,7 @@ function setupSettingsToggles() {
 
   // 데이터 가져오기
   document.getElementById('btn-data-import').addEventListener('click', async () => {
-    if (!confirm('현재 데이터가 모두 덮어씌워집니다. 계속하시겠습니까?')) return;
+    if (!confirm('현재 데이터가 모두 덮어씌워집니다. 계속하시겠습니까?')) { window.focus(); return; }
     const result = await window.api.importData();
     if (result.cancelled) return;
     if (result.success) {
@@ -728,8 +734,24 @@ function renderMsEditor() {
     boardSelect.innerHTML += `<option value="${ms.boardMenuId}" selected>${ms.boardName || ms.boardMenuId}</option>`;
   }
 
-  // 랜덤 닉네임
-  document.getElementById('ms-random-nickname').checked = ms.randomNickname || false;
+  // 랜덤 닉네임 + 커스텀 닉네임
+  const msRandomNickOld = document.getElementById('ms-random-nickname');
+  const msCustomNick = document.getElementById('ms-custom-nickname');
+
+  // 이전 리스너 제거 (cloneNode로 교체)
+  const msRandomNick = msRandomNickOld.cloneNode(true);
+  msRandomNickOld.parentNode.replaceChild(msRandomNick, msRandomNickOld);
+
+  msRandomNick.checked = ms.randomNickname || false;
+  msCustomNick.value = ms.nickname || '';
+  msCustomNick.disabled = ms.randomNickname || false;
+  msCustomNick.style.opacity = ms.randomNickname ? '0.4' : '1';
+
+  msRandomNick.addEventListener('change', () => {
+    msCustomNick.disabled = msRandomNick.checked;
+    msCustomNick.style.opacity = msRandomNick.checked ? '0.4' : '1';
+    if (msRandomNick.checked) msCustomNick.value = '';
+  });
 
   // 공개 설정
   const visibility = ms.visibility || 'public';
@@ -781,6 +803,7 @@ function collectMsData() {
   ms.boardName = selectedOpt ? selectedOpt.textContent : '';
 
   ms.randomNickname = document.getElementById('ms-random-nickname').checked;
+  ms.nickname = document.getElementById('ms-custom-nickname').value.trim() || '';
   ms.visibility = document.querySelector('input[name="ms-visibility"]:checked').value || 'public';
   ms.post.title = document.getElementById('ms-title').value.trim();
 
@@ -803,12 +826,14 @@ function collectMsData() {
     containerEl.querySelectorAll(':scope > .ms-reply-item').forEach(replyEl => {
       const rAcct = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-account');
       const rNick = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-random-nick');
+      const rCustomNick = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-custom-nick');
       const rText = replyEl.querySelector(':scope > .ms-reply-text');
       const rImg = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-image-path');
       const subList = replyEl.querySelector(':scope > .ms-reply-sub-list');
       replies.push({
         accountId: rAcct ? rAcct.value : '',
         randomNickname: rNick ? rNick.checked : false,
+        nickname: rCustomNick ? rCustomNick.value.trim() : '',
         text: rText ? rText.value : '',
         imagePath: rImg ? rImg.dataset.path || null : null,
         replies: subList ? collectReplies(subList) : [],
@@ -821,12 +846,14 @@ function collectMsData() {
   document.querySelectorAll('#ms-comments-list > .ms-comment-item').forEach(item => {
     const accountSelect = item.querySelector('.ms-cmt-account');
     const nickCheck = item.querySelector('.ms-cmt-random-nick');
+    const nickCustom = item.querySelector('.ms-cmt-custom-nick');
     const textInput = item.querySelector('.ms-cmt-text');
     const imgSpan = item.querySelector('.ms-cmt-image-path');
     const replyList = item.querySelector('.ms-reply-list');
     ms.comments.push({
       accountId: accountSelect ? accountSelect.value : '',
       randomNickname: nickCheck ? nickCheck.checked : false,
+      nickname: nickCustom ? nickCustom.value.trim() : '',
       text: textInput ? textInput.value : '',
       imagePath: imgSpan ? imgSpan.dataset.path || null : null,
       replies: replyList ? collectReplies(replyList) : [],
@@ -965,12 +992,13 @@ function setupManuscriptsTab() {
   // 원고 삭제
   const deleteMs = async () => {
     if (selectedMsIndex < 0) return;
-    if (!confirm('이 원고를 삭제하시겠습니까?')) return;
+    if (!confirm('이 원고를 삭제하시겠습니까?')) { window.focus(); return; }
     manuscripts.splice(selectedMsIndex, 1);
     selectedMsIndex = -1;
     document.getElementById('ms-editor').style.display = 'none';
     await saveAllManuscripts();
     renderMsList();
+    window.focus();
   };
   document.getElementById('btn-delete-ms').addEventListener('click', deleteMs);
   document.getElementById('btn-delete-ms-top').addEventListener('click', deleteMs);
@@ -1098,7 +1126,7 @@ function setupPresets() {
     const snapshot = JSON.parse(JSON.stringify(manuscripts));
     const existing = presets.findIndex(p => p.name === name);
     if (existing >= 0) {
-      if (!confirm(`"${name}" 프리셋을 덮어쓰시겠습니까?`)) return;
+      if (!confirm(`"${name}" 프리셋을 덮어쓰시겠습니까?`)) { window.focus(); return; }
       presets[existing].manuscripts = snapshot;
       presets[existing].savedAt = new Date().toISOString();
     } else {
@@ -1144,7 +1172,7 @@ function setupPresets() {
 
     const preset = presets[idx];
     if (!preset) return;
-    if (!confirm(`"${preset.name}" 프리셋을 삭제하시겠습니까?`)) return;
+    if (!confirm(`"${preset.name}" 프리셋을 삭제하시겠습니까?`)) { window.focus(); return; }
 
     presets.splice(idx, 1);
     await saveAllManuscripts();
@@ -1656,7 +1684,7 @@ function setupDeleteTab() {
   document.getElementById('btn-delete-selected').addEventListener('click', async () => {
     const urls = getSelectedDeleteUrls();
     if (urls.length === 0) return showToast('삭제할 게시글을 선택하세요.');
-    if (!confirm(`선택한 ${urls.length}개 게시글을 네이버에서 삭제하시겠습니까?`)) return;
+    if (!confirm(`선택한 ${urls.length}개 게시글을 네이버에서 삭제하시겠습니까?`)) { window.focus(); return; }
 
     const statusEl = document.getElementById('delete-status');
     statusEl.textContent = `${urls.length}개 삭제 중...`;
@@ -1671,6 +1699,7 @@ function setupDeleteTab() {
     }
 
     await renderDeleteTable();
+    window.focus();
     setTimeout(() => { statusEl.textContent = ''; }, 5000);
   });
 
@@ -1678,11 +1707,12 @@ function setupDeleteTab() {
   document.getElementById('btn-delete-remove-selected').addEventListener('click', async () => {
     const urls = getSelectedDeleteUrls();
     if (urls.length === 0) return showToast('제거할 항목을 선택하세요.');
-    if (!confirm(`선택한 ${urls.length}개 항목을 목록에서 제거하시겠습니까?\n(네이버 게시글은 삭제되지 않습니다)`)) return;
+    if (!confirm(`선택한 ${urls.length}개 항목을 목록에서 제거하시겠습니까?\n(네이버 게시글은 삭제되지 않습니다)`)) { window.focus(); return; }
 
     await window.api.removeDeleteEntries(urls);
     await renderDeleteTable();
     showToast(`${urls.length}개 항목 제거됨`);
+    window.focus();
   });
 
   // 탭 전환 시 자동 로드

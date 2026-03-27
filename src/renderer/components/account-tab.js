@@ -167,6 +167,7 @@ const MsHelpers = {
         <label style="font-size:11px; color:#8892b0; display:flex; align-items:center; gap:3px; cursor:pointer;">
           <input type="checkbox" class="ms-cmt-random-nick" ${cmt.randomNickname ? 'checked' : ''}> 랜덤닉
         </label>
+        <input type="text" class="input ms-cmt-custom-nick" placeholder="닉네임" value="${cmt.nickname || ''}" style="width:100px; font-size:11px; padding:2px 6px;${cmt.randomNickname ? ' opacity:0.4;' : ''}" ${cmt.randomNickname ? 'disabled' : ''}>
         <span class="seg-image-path ms-cmt-image-path" data-path="${cmt.imagePath || ''}" style="font-size:11px; flex:1;">${cmt.imagePath || '이미지 없음'}</span>
         <button class="btn btn-sm btn-secondary btn-ms-cmt-img">이미지</button>
         <button class="btn-cmt-delete" title="삭제">&#10005;</button>
@@ -190,6 +191,15 @@ const MsHelpers = {
         getCommentAccountColor(accountSelect.value); // 새 계정이면 색상 등록
       }
       refreshAllCommentColors(); // 전체 갱신
+    });
+
+    // 랜덤닉 체크 시 커스텀 닉네임 비활성화
+    const cmtRandomNick = div.querySelector('.ms-cmt-random-nick');
+    const cmtCustomNick = div.querySelector('.ms-cmt-custom-nick');
+    cmtRandomNick.addEventListener('change', () => {
+      cmtCustomNick.disabled = cmtRandomNick.checked;
+      cmtCustomNick.style.opacity = cmtRandomNick.checked ? '0.4' : '1';
+      if (cmtRandomNick.checked) cmtCustomNick.value = '';
     });
 
     div.querySelector('.btn-cmt-delete').addEventListener('click', () => div.remove());
@@ -234,6 +244,7 @@ const MsHelpers = {
         <label style="font-size:11px; color:#8892b0; display:flex; align-items:center; gap:3px; cursor:pointer;">
           <input type="checkbox" class="ms-reply-random-nick" ${reply.randomNickname ? 'checked' : ''}> 랜덤닉
         </label>
+        <input type="text" class="input ms-reply-custom-nick" placeholder="닉네임" value="${reply.nickname || ''}" style="width:90px; font-size:11px; padding:2px 6px;${reply.randomNickname ? ' opacity:0.4;' : ''}" ${reply.randomNickname ? 'disabled' : ''}>
         <span class="seg-image-path ms-reply-image-path" data-path="${reply.imagePath || ''}" style="font-size:11px; flex:1;">${reply.imagePath || '이미지 없음'}</span>
         <button class="btn btn-sm btn-secondary btn-ms-reply-img" style="font-size:11px;">이미지</button>
         <button class="btn-reply-delete" title="삭제">&#10005;</button>
@@ -257,6 +268,15 @@ const MsHelpers = {
         getCommentAccountColor(accountSelect.value);
       }
       refreshAllCommentColors();
+    });
+
+    // 랜덤닉 체크 시 커스텀 닉네임 비활성화
+    const replyRandomNick = div.querySelector('.ms-reply-random-nick');
+    const replyCustomNick = div.querySelector('.ms-reply-custom-nick');
+    replyRandomNick.addEventListener('change', () => {
+      replyCustomNick.disabled = replyRandomNick.checked;
+      replyCustomNick.style.opacity = replyRandomNick.checked ? '0.4' : '1';
+      if (replyRandomNick.checked) replyCustomNick.value = '';
     });
 
     div.querySelector('.btn-reply-delete').addEventListener('click', () => div.remove());

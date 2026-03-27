@@ -165,8 +165,8 @@ class Executor extends EventEmitter {
           currentLoggedInAccount = posterAccId;
           this.log(`${posterAccId} 로그인 성공 (${loginResult.method})`);
 
-          // 닉네임 변경 (원고별 랜덤 닉네임 또는 설정탭 닉네임)
-          const useNickname = ms.randomNickname ? 'random' : (posterAcc.nickname || null);
+          // 닉네임 변경 (랜덤 닉네임 > 커스텀 닉네임 > 계정 닉네임)
+          const useNickname = ms.randomNickname ? 'random' : (ms.nickname || posterAcc.nickname || null);
           if (useNickname && ms.cafeName) {
             this.log(`닉네임 변경: ${useNickname === 'random' ? '랜덤' : `"${useNickname}"`}`);
             const nickResult = await nicknameChanger.changeNickname(
@@ -202,8 +202,9 @@ class Executor extends EventEmitter {
 
           if (ms.comments && ms.comments.length > 0 && isValidPostUrl) {
             // 계정 전환 헬퍼
-            const switchAccount = async (targetAccId, randomNickname) => {
-              if (targetAccId === currentLoggedInAccount && !randomNickname) return true;
+            const switchAccount = async (targetAccId, randomNickname, customNickname) => {
+              const hasNicknameChange = randomNickname || (customNickname && customNickname.trim());
+              if (targetAccId === currentLoggedInAccount && !hasNicknameChange) return true;
               const targetAcc = allAccounts.find(a => a.id === targetAccId);
               if (!targetAcc) {
                 this.log(`계정 "${targetAccId}" 없음. 건너뜁니다.`);
@@ -233,11 +234,12 @@ class Executor extends EventEmitter {
                 this.log(`${targetAccId} 로그인 성공`);
               }
 
-              // 랜덤 닉네임
-              if (randomNickname && ms.cafeName) {
-                this.log(`댓글 계정 닉네임 변경: 랜덤`);
+              // 닉네임 변경 (랜덤 > 커스텀)
+              const nickToUse = randomNickname ? 'random' : (customNickname && customNickname.trim() ? customNickname.trim() : null);
+              if (nickToUse && ms.cafeName) {
+                this.log(`댓글 계정 닉네임 변경: ${nickToUse === 'random' ? '랜덤' : `"${nickToUse}"`}`);
                 const nickResult = await nicknameChanger.changeNickname(
-                  page, browser, ms.cafeName || ms.cafeId, 'random'
+                  page, browser, ms.cafeName || ms.cafeId, nickToUse
                 );
                 if (nickResult.success) {
                   this.log(`닉네임 변경 완료: "${nickResult.nickname}"`);
@@ -264,7 +266,7 @@ class Executor extends EventEmitter {
 
                 let replyLoginOk = false;
                 try {
-                  replyLoginOk = await switchAccount(replyAccId, reply.randomNickname);
+                  replyLoginOk = await switchAccount(replyAccId, reply.randomNickname, reply.nickname);
                 } catch (switchErr) {
                   this.log(`계정 전환 오류 (${replyAccId}): ${switchErr.message}`);
                 }
@@ -309,7 +311,7 @@ class Executor extends EventEmitter {
               const cmtAccId = cmt.accountId || posterAccId;
               const cmtResult = { accountId: cmtAccId, status: 'pending', replies: [] };
 
-              const cmtLoginOk = await switchAccount(cmtAccId, cmt.randomNickname);
+              const cmtLoginOk = await switchAccount(cmtAccId, cmt.randomNickname, cmt.nickname);
               if (!cmtLoginOk) {
                 cmtResult.status = 'failed';
                 cmtResult.error = '계정 전환 실패';

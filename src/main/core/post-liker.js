@@ -20,8 +20,8 @@ async function likePost(page, articleUrl) {
   }
   console.log('iframe 접근 성공');
 
-  // 좋아요 버튼 찾기 및 클릭 (동작 확인된 방식)
-  const likeResult = await frame.evaluate(() => {
+  // 1단계: 좋아요 버튼 찾기 + 클릭 전 상태 확인
+  const beforeState = await frame.evaluate(() => {
     const likeSelectors = [
       '.like_article .u_likeit_list_btn',
       '.ReactionLikeIt .u_likeit_list_btn',
@@ -29,23 +29,74 @@ async function likePost(page, articleUrl) {
       '.u_likeit_list_btn',
     ];
 
+    let likeButton = null;
+    let usedSelector = null;
     for (const selector of likeSelectors) {
-      const likeButton = document.querySelector(selector);
-      if (likeButton) {
-        likeButton.click();
-        return { success: true, selector: selector };
-      }
+      likeButton = document.querySelector(selector);
+      if (likeButton) { usedSelector = selector; break; }
     }
 
-    return { success: false, selector: null };
+    if (!likeButton) return { found: false };
+
+    // 이미 좋아요 상태인지 확인
+    const isLiked = likeButton.classList.contains('on') ||
+      likeButton.getAttribute('aria-pressed') === 'true' ||
+      likeButton.classList.contains('is_liked');
+
+    // 좋아요 수 확인
+    let count = 0;
+    const countEl = likeButton.querySelector('.u_cnt') ||
+      likeButton.closest('.like_article, .ReactionLikeIt')?.querySelector('.u_cnt, .count');
+    if (countEl) count = parseInt(countEl.textContent.replace(/,/g, ''), 10) || 0;
+
+    return { found: true, selector: usedSelector, isLiked, count };
   });
 
-  if (!likeResult.success) {
+  if (!beforeState.found) {
     throw new Error('좋아요 버튼을 찾을 수 없습니다');
   }
 
-  console.log(`좋아요 클릭 성공 (${likeResult.selector})`);
+  // 이미 좋아요 누른 상태
+  if (beforeState.isLiked) {
+    console.log('이미 좋아요 누른 상태');
+    return { success: true, alreadyLiked: true };
+  }
+
+  // 2단계: 좋아요 클릭
+  await frame.evaluate((selector) => {
+    const btn = document.querySelector(selector);
+    if (btn) btn.click();
+  }, beforeState.selector);
+
+  console.log(`좋아요 클릭 완료 (${beforeState.selector})`);
   await delay(2000);
+
+  // 3단계: 클릭 후 상태 확인 (실제 반영 검증)
+  const afterState = await frame.evaluate((selector) => {
+    const likeButton = document.querySelector(selector);
+    if (!likeButton) return { isLiked: false, count: 0 };
+
+    const isLiked = likeButton.classList.contains('on') ||
+      likeButton.getAttribute('aria-pressed') === 'true' ||
+      likeButton.classList.contains('is_liked');
+
+    let count = 0;
+    const countEl = likeButton.querySelector('.u_cnt') ||
+      likeButton.closest('.like_article, .ReactionLikeIt')?.querySelector('.u_cnt, .count');
+    if (countEl) count = parseInt(countEl.textContent.replace(/,/g, ''), 10) || 0;
+
+    return { isLiked, count };
+  }, beforeState.selector);
+
+  // 검증: 버튼 상태가 변했거나 카운트가 증가했으면 성공
+  const verified = afterState.isLiked || afterState.count > beforeState.count;
+
+  if (!verified) {
+    console.log(`좋아요 반영 안됨 (before: ${beforeState.count}, after: ${afterState.count}, isLiked: ${afterState.isLiked})`);
+    throw new Error('좋아요가 실제로 반영되지 않았습니다');
+  }
+
+  console.log(`좋아요 검증 완료 (${beforeState.count} → ${afterState.count})`);
   return { success: true, alreadyLiked: false };
 }
 
