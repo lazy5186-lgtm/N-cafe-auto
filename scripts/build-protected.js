@@ -183,11 +183,10 @@ for (const relFile of RENDERER_FILES) {
   console.log(`  OK: ${relFile}`);
 }
 
-// Node-target obfuscation options (no deadCodeInjection — causes cross-scope variable errors)
+// Node-target obfuscation options (no deadCodeInjection/controlFlowFlattening — breaks async/await scope)
 const nodeObfuscatorOptions = {
   compact: true,
-  controlFlowFlattening: true,
-  controlFlowFlatteningThreshold: 0.5,
+  controlFlowFlattening: false,
   deadCodeInjection: false,
   stringArray: true,
   stringArrayRotate: true,
