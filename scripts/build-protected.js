@@ -10,7 +10,6 @@ const electronPath = path.join(ROOT, 'node_modules', '.bin', 'electron.cmd');
 // Main process JS files to compile with bytenode
 const MAIN_FILES = [
   'src/main/index.js',
-  'src/main/preload.js',
   'src/main/ipc-handlers.js',
   'src/main/core/adb-helper.js',
   'src/main/core/auth.js',
@@ -34,6 +33,11 @@ const MAIN_FILES = [
 // Entry points that don't export (just run)
 const NO_EXPORT_FILES = [
   'src/main/index.js',
+];
+
+// Preload scripts — bytenode doesn't work in Electron's preload sandbox,
+// so these are obfuscated (not compiled to .jsc)
+const PRELOAD_FILES = [
   'src/main/preload.js',
 ];
 
@@ -173,6 +177,23 @@ for (const relFile of RENDERER_FILES) {
   console.log(`  OK: ${relFile}`);
 }
 
+// Obfuscate preload scripts (target: 'node' — preload has access to Node.js require)
+for (const relFile of PRELOAD_FILES) {
+  const absFile = path.join(DIST_SRC, relFile);
+  if (!fs.existsSync(absFile)) {
+    console.warn(`  SKIP (not found): ${relFile}`);
+    continue;
+  }
+
+  const source = fs.readFileSync(absFile, 'utf-8');
+  const result = JavaScriptObfuscator.obfuscate(source, {
+    ...obfuscatorOptions,
+    target: 'node',
+  });
+  fs.writeFileSync(absFile, result.getObfuscatedCode(), 'utf-8');
+  console.log(`  OK (preload): ${relFile}`);
+}
+
 // ── Step 5: Prepare package.json for dist-src ───────────
 
 console.log('[5/6] Preparing package.json ...');
@@ -195,6 +216,7 @@ const distPkg = {
   build: {
     ...pkg.build,
     electronVersion: electronVersion,
+    asarUnpack: ['**/*.jsc'],
     directories: { output: '../dist' },
     extraResources: [
       ...pkg.build.extraResources,
