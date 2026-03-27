@@ -80,6 +80,11 @@ contextBridge.exposeInMainWorld('api', {
   onUpdateNotAvailable: (cb) => { ipcRenderer.on('update:notAvailable', () => cb()); },
   onUpdateError: (cb) => { ipcRenderer.on('update:error', (_e, d) => cb(d)); },
 
+  // 데이터 내보내기/가져오기
+  exportData: () => ipcRenderer.invoke('data:export'),
+  importData: () => ipcRenderer.invoke('data:import'),
+  exportManuscriptsTxt: () => ipcRenderer.invoke('data:export-manuscripts-txt'),
+
   // 유틸
   selectImage: () => ipcRenderer.invoke('util:select-image'),
   openExternal: (url) => ipcRenderer.invoke('util:open-external', url),

@@ -541,6 +541,170 @@ function registerHandlers(mainWindow) {
     autoUpdater.quitAndInstall();
   });
 
+  // === 데이터 내보내기/가져오기 ===
+  ipcMain.handle('data:export', async () => {
+    try {
+      const accounts = store.loadAccounts();
+      const settings = store.loadSettings();
+      const msData = store.loadGlobalManuscripts();
+      const nicknameWords = store.loadNicknameWords();
+      const deleteSchedule = store.loadDeleteSchedule();
+
+      const exportData = {
+        _type: 'NCafeAuto-Export',
+        _version: app.getVersion(),
+        _exportedAt: new Date().toISOString(),
+        accounts,
+        settings,
+        manuscripts: msData.manuscripts || [],
+        presets: msData.presets || [],
+        nicknameWords,
+        deleteSchedule,
+      };
+
+      const { filePath } = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: `NCafeAuto-Data-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!filePath) return { success: false, cancelled: true };
+
+      const fs = require('fs');
+      fs.writeFileSync(filePath, JSON.stringify(exportData, null, 2), 'utf8');
+      return { success: true, filePath };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('data:import', async () => {
+    try {
+      const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!filePaths || filePaths.length === 0) return { success: false, cancelled: true };
+
+      const fs = require('fs');
+      const raw = fs.readFileSync(filePaths[0], 'utf8');
+      const data = JSON.parse(raw);
+
+      if (data._type !== 'NCafeAuto-Export') {
+        return { success: false, error: 'N Cafe Auto 내보내기 파일이 아닙니다.' };
+      }
+
+      // 계정
+      if (data.accounts && Array.isArray(data.accounts)) {
+        store.saveAccounts(data.accounts);
+      }
+      // 설정
+      if (data.settings) {
+        store.saveSettings(data.settings);
+      }
+      // 원고 + 프리셋
+      if (data.manuscripts || data.presets) {
+        store.saveGlobalManuscripts({
+          manuscripts: data.manuscripts || [],
+          presets: data.presets || [],
+        });
+      }
+      // 닉네임 단어
+      if (data.nicknameWords) {
+        store.saveNicknameWords(data.nicknameWords);
+        nicknameGenerator.setCustomWords(data.nicknameWords.adjectives, data.nicknameWords.nouns);
+      }
+      // 삭제 스케줄
+      if (data.deleteSchedule && Array.isArray(data.deleteSchedule)) {
+        store.saveDeleteSchedule(data.deleteSchedule);
+      }
+
+      return { success: true, version: data._version, exportedAt: data._exportedAt };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // === 원고 TXT 내보내기 ===
+  ipcMain.handle('data:export-manuscripts-txt', async () => {
+    try {
+      const { manuscripts, presets } = store.loadGlobalManuscripts();
+      if (!manuscripts || manuscripts.length === 0) {
+        return { success: false, error: '내보낼 원고가 없습니다.' };
+      }
+
+      const lines = [];
+      manuscripts.forEach((ms, i) => {
+        lines.push(`[원고 ${i + 1}]`);
+        lines.push(`계정: ${ms.accountId || '없음'}`);
+        lines.push(`카페: ${ms.cafeName || '없음'} (${ms.cafeId || ''})`);
+        const boardNames = (ms.boards || []).map(b => b.menuName).join(', ');
+        lines.push(`게시판: ${boardNames || ms.boardName || '없음'}`);
+        lines.push(`공개설정: ${ms.visibility === 'member' ? '멤버공개' : '전체공개'}`);
+        lines.push(`랜덤닉네임: ${ms.randomNickname ? 'ON' : 'OFF'}`);
+        lines.push(`활성화: ${ms.enabled !== false ? 'ON' : 'OFF'}`);
+        lines.push('');
+
+        // 제목
+        const post = ms.post || {};
+        lines.push(`[제목] ${post.title || '(제목 없음)'}`);
+        lines.push('');
+
+        // 본문
+        lines.push('[본문]');
+        const segments = post.bodySegments || [];
+        for (const seg of segments) {
+          if (seg.type === 'text') {
+            lines.push(seg.content || '');
+          } else if (seg.type === 'image') {
+            lines.push(`[이미지: ${seg.filePath || '경로 없음'}]`);
+          }
+        }
+        lines.push('');
+
+        // 댓글
+        const comments = ms.comments || [];
+        if (comments.length > 0) {
+          lines.push('[댓글]');
+          comments.forEach((c, ci) => {
+            const cNick = c.randomNickname ? ', 랜덤닉네임: ON' : '';
+            lines.push(`  댓글 ${ci + 1} (계정: ${c.accountId || '없음'}${cNick})`);
+            if (c.text) lines.push(`  ${c.text}`);
+            if (c.imagePath) lines.push(`  [이미지: ${c.imagePath}]`);
+
+            // 답글 (재귀)
+            function writeReplies(replies, depth) {
+              if (!replies) return;
+              const indent = '  '.repeat(depth + 1);
+              replies.forEach((r, ri) => {
+                const rNick = r.randomNickname ? ', 랜덤닉네임: ON' : '';
+                lines.push(`${indent}답글 ${ri + 1} (계정: ${r.accountId || '없음'}${rNick})`);
+                if (r.text) lines.push(`${indent}${r.text}`);
+                if (r.imagePath) lines.push(`${indent}[이미지: ${r.imagePath}]`);
+                if (r.replies) writeReplies(r.replies, depth + 1);
+              });
+            }
+            writeReplies(c.replies, 1);
+          });
+          lines.push('');
+        }
+
+        lines.push('─'.repeat(40));
+        lines.push('');
+      });
+
+      const { filePath } = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: `NCafeAuto-원고-${new Date().toISOString().slice(0, 10)}.txt`,
+        filters: [{ name: 'Text', extensions: ['txt'] }],
+      });
+      if (!filePath) return { success: false, cancelled: true };
+
+      const fs = require('fs');
+      fs.writeFileSync(filePath, '\uFEFF' + lines.join('\n'), 'utf8');
+      return { success: true, filePath, count: manuscripts.length };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
   // === 유틸 ===
   ipcMain.handle('util:select-image', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {

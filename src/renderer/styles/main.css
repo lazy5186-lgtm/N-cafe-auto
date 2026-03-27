@@ -235,6 +235,13 @@ input[type="date"].input {
   font-weight: 500;
 }
 
+/* Accounts scroll */
+.accounts-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 6px;
+}
+
 /* Table */
 .data-table {
   width: 100%;

@@ -575,6 +575,32 @@ function setupSettingsToggles() {
 
   // 닉네임 단어 관리
   setupNicknameWords();
+
+  // 데이터 내보내기
+  document.getElementById('btn-data-export').addEventListener('click', async () => {
+    if (selectedMsIndex >= 0) collectMsData();
+    await saveAllManuscripts();
+    const result = await window.api.exportData();
+    if (result.cancelled) return;
+    if (result.success) {
+      showToast('데이터 내보내기 완료');
+    } else {
+      showToast('내보내기 실패: ' + (result.error || '알 수 없는 오류'));
+    }
+  });
+
+  // 데이터 가져오기
+  document.getElementById('btn-data-import').addEventListener('click', async () => {
+    if (!confirm('현재 데이터가 모두 덮어씌워집니다. 계속하시겠습니까?')) return;
+    const result = await window.api.importData();
+    if (result.cancelled) return;
+    if (result.success) {
+      showToast('데이터 가져오기 완료! 화면을 새로고침합니다.');
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      showToast('가져오기 실패: ' + (result.error || '알 수 없는 오류'));
+    }
+  });
 }
 
 function updateWordCounts() {
@@ -1042,6 +1068,19 @@ function renderPresetSelect() {
 
 function setupPresets() {
   renderPresetSelect();
+
+  // 원고 TXT 내보내기
+  document.getElementById('btn-ms-export-txt').addEventListener('click', async () => {
+    if (selectedMsIndex >= 0) collectMsData();
+    await saveAllManuscripts();
+    const result = await window.api.exportManuscriptsTxt();
+    if (result.cancelled) return;
+    if (result.success) {
+      showToast(`원고 ${result.count}개 TXT 내보내기 완료`);
+    } else {
+      showToast('내보내기 실패: ' + (result.error || '알 수 없는 오류'));
+    }
+  });
 
   document.getElementById('btn-preset-save').addEventListener('click', async () => {
     const nameInput = document.getElementById('preset-name-input');

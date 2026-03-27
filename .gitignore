@@ -5,4 +5,5 @@ data/accounts.json
 data/delete-schedule.json
 data/crawl-cache/
 dist/
+dist-src/
 *.log
