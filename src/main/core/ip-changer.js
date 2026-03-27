@@ -103,26 +103,41 @@ async function changeIPviaNetsh(interfaceName, logFn) {
 async function changeIPviaADB(settings, logFn) {
   const log = logFn || (() => {});
   const deviceId = (settings.ipChange && settings.ipChange.adb && settings.ipChange.adb.deviceId) || null;
+  const maxRetries = 3;
 
-  await adbHelper.toggleMobileData(deviceId, log);
+  let oldIp = null;
+  try { oldIp = await ipChecker.getPublicIP(); } catch (_) {}
 
-  // 폴링: IP를 받아올 때까지 1초 간격으로 확인 (최대 15초)
-  let newIp = null;
-  for (let i = 0; i < 15; i++) {
-    await delay(1000);
-    try {
-      newIp = await ipChecker.getPublicIP();
-      if (newIp) {
-        log(`변경 완료: ${newIp}`);
-        return newIp;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    await adbHelper.toggleMobileData(deviceId, log);
+
+    let newIp = null;
+    for (let i = 0; i < 15; i++) {
+      await delay(1000);
+      try {
+        newIp = await ipChecker.getPublicIP();
+        if (newIp && newIp !== oldIp) {
+          log(`변경 완료: ${newIp}`);
+          return newIp;
+        }
+      } catch (e) {
+        // 네트워크 아직 복구 안됨
       }
-    } catch (e) {
-      // 네트워크 아직 복구 안됨
     }
-  }
 
-  log(`IP 확인 실패`);
-  return newIp;
+    if (newIp && newIp === oldIp && attempt < maxRetries) {
+      log(`IP 동일(${newIp}), 재시도 ${attempt}/${maxRetries}...`);
+      continue;
+    }
+
+    if (newIp) {
+      log(`변경 완료: ${newIp}`);
+      return newIp;
+    }
+
+    log(`IP 확인 실패`);
+    return newIp;
+  }
 }
 
 // === 디스패처 ===

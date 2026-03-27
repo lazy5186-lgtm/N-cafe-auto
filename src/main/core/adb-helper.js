@@ -96,7 +96,7 @@ async function toggleMobileData(deviceId, logFn) {
   log('모바일 데이터 OFF...');
   await execAdb(`${deviceArg} shell svc data disable`);
 
-  await delay(500);
+  await delay(1000);
 
   log('모바일 데이터 ON...');
   await execAdb(`${deviceArg} shell svc data enable`);

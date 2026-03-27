@@ -344,8 +344,10 @@ async function renderAccountsTable() {
   const tbody = document.getElementById('accounts-tbody');
   tbody.innerHTML = '';
 
-  for (const acc of accounts) {
-    const hasCookies = await window.api.hasCookies(acc.id);
+  const cookieResults = await Promise.all(accounts.map(acc => window.api.hasCookies(acc.id)));
+
+  accounts.forEach((acc, i) => {
+    const hasCookies = cookieResults[i];
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${acc.id}</td>
@@ -357,7 +359,7 @@ async function renderAccountsTable() {
       <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
     `;
     tbody.appendChild(tr);
-  }
+  });
 
   tbody.querySelectorAll('.btn-login-test').forEach(btn => {
     btn.addEventListener('click', async () => {

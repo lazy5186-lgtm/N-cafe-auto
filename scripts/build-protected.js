@@ -265,11 +265,6 @@ const distPkg = {
     directories: { output: '../dist' },
     extraResources: [
       ...pkg.build.extraResources,
-      {
-        from: 'resources/lib',
-        to: 'lib',
-        filter: ['AdbWinUsbApi.dll'],
-      },
     ],
   },
 };
