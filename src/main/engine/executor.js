@@ -122,7 +122,7 @@ class Executor extends EventEmitter {
           this.log(`계정 "${posterAccId}" 없음. 건너뜁니다.`);
           this.logger.addResult({
             manuscriptId: ms.id, accountId: posterAccId, boardName: ms.boardName,
-            postTitle: ms.post.title, postUrl: null, status: 'failed',
+            postTitle: (ms.post || {}).title, postUrl: null, status: 'failed',
             error: '계정 없음', ipAtExecution: null, comments: [],
           });
           totalDone++;
@@ -154,7 +154,7 @@ class Executor extends EventEmitter {
             this.log(`${posterAccId} 로그인 실패`);
             this.logger.addResult({
               manuscriptId: ms.id, accountId: posterAccId, boardName: ms.boardName,
-              postTitle: ms.post.title, postUrl: null, status: 'failed',
+              postTitle: (ms.post || {}).title, postUrl: null, status: 'failed',
               error: '로그인 실패', ipAtExecution: null, comments: [],
             });
             totalDone++;
@@ -181,17 +181,17 @@ class Executor extends EventEmitter {
         }
 
         const currentIp = await ipChecker.getPublicIP();
-        this.log(`게시글 작성: "${ms.post.title}" → ${ms.boardName}`);
+        this.log(`게시글 작성: "${(ms.post || {}).title}" → ${ms.boardName}`);
 
         const resultEntry = {
           manuscriptId: ms.id, accountId: posterAccId, boardName: ms.boardName,
-          postTitle: ms.post.title, postUrl: null, status: 'pending',
+          postTitle: (ms.post || {}).title, postUrl: null, status: 'pending',
           ipAtExecution: currentIp, comments: [],
         };
 
         try {
           const postUrl = await postWriter.writePost(
-            page, ms.cafeId, ms.boardMenuId, ms.post.title, ms.post.bodySegments, ms.boardName, ms.visibility
+            page, ms.cafeId, ms.boardMenuId, (ms.post || {}).title, (ms.post || {}).bodySegments, ms.boardName, ms.visibility
           );
           resultEntry.postUrl = postUrl;
           resultEntry.status = 'success';
@@ -283,7 +283,7 @@ class Executor extends EventEmitter {
                   const replyFrame = await commentWriter.navigateToArticle(page, postUrl);
                   await commentWriter.writeReply(page, replyFrame, parentText, reply.text, reply.imagePath);
                   replyResult.status = 'success';
-                  this.log(`대댓글 작성 완료 (${replyAccId}): "${reply.text.substring(0, 20)}"`);
+                  this.log(`대댓글 작성 완료 (${replyAccId}): "${(reply.text || '').substring(0, 20)}"`);
                 } catch (replyErr) {
                   replyResult.status = 'failed';
                   replyResult.error = replyErr.message;
@@ -297,7 +297,7 @@ class Executor extends EventEmitter {
                 await this.randomDelay();
 
                 if (reply.replies && reply.replies.length > 0) {
-                  this.log(`하위 대댓글 ${reply.replies.length}개 처리 시작 (parentText: "${reply.text.substring(0, 20)}")`);
+                  this.log(`하위 대댓글 ${reply.replies.length}개 처리 시작 (parentText: "${(reply.text || '').substring(0, 20)}")`);
                   await processReplies(reply.replies, reply.text, replyResult);
                 }
 
@@ -359,7 +359,7 @@ class Executor extends EventEmitter {
             store.addDeleteEntry({
               accountId: posterAccId,
               postUrl: resultEntry.postUrl,
-              postTitle: ms.post.title,
+              postTitle: (ms.post || {}).title,
               boardName: ms.boardName,
             });
           }
@@ -372,7 +372,7 @@ class Executor extends EventEmitter {
 
         this.logger.addResult(resultEntry);
         totalDone++;
-        this.progress(totalDone, totalTasks, `${posterAccId} - ${ms.post.title}`);
+        this.progress(totalDone, totalTasks, `${posterAccId} - ${(ms.post || {}).title}`);
         await browserManager.delay(3000);
       }
 

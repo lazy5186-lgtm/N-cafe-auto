@@ -96,6 +96,7 @@ async function crawlComments(frame) {
 }
 
 async function writeComment(page, frame, text, imagePath) {
+  text = text || '';
   console.log(`댓글 작성 시작: "${text.substring(0, 30)}..."`);
 
   const textareaSelectors = [
@@ -192,6 +193,8 @@ async function writeComment(page, frame, text, imagePath) {
  * 대대댓글은 reply의 "답글쓰기"를 클릭하면 @멘션 형태로 작성됨
  */
 async function writeReply(page, frame, targetCommentText, replyText, replyImagePath) {
+  targetCommentText = targetCommentText || '';
+  replyText = replyText || '';
   console.log(`대댓글 작성 시작: 대상="${targetCommentText.substring(0, 30)}" 답글="${replyText.substring(0, 30)}"`);
 
   // 0. 기존에 열린 답글 입력창이 있으면 닫기

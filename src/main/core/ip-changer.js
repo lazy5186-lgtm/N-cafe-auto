@@ -138,6 +138,8 @@ async function changeIPviaADB(settings, logFn) {
     log(`IP 확인 실패`);
     return newIp;
   }
+
+  return null;
 }
 
 // === 디스패처 ===

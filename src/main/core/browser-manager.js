@@ -71,7 +71,7 @@ async function setupPage(page) {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
   });
   await page.setUserAgent(getRandomUserAgent());
-  page.on('dialog', async (dialog) => { await dialog.accept(); });
+  page.on('dialog', async (dialog) => { try { await dialog.accept(); } catch (_) {} });
 }
 
 async function createPage(browser) {

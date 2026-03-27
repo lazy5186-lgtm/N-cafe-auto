@@ -185,7 +185,10 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   await navigateToWritePage(page, cafeId, menuId);
 
   // === 1. 게시판 선택 (선택하면 양식이 로드됨) ===
-  await selectBoard(page, menuId, boardName);
+  const boardSelected = await selectBoard(page, menuId, boardName);
+  if (!boardSelected) {
+    throw new Error(`게시판 선택 실패: ${boardName || menuId}`);
+  }
   console.log('게시판 양식 로드 대기...');
   await delay(3000);
 

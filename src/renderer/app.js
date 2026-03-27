@@ -395,6 +395,45 @@ async function renderAccountsTable() {
   });
 }
 
+function appendAccountRow(acc, hasCookies) {
+  const tbody = document.getElementById('accounts-tbody');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>${acc.id}</td>
+    <td class="pw-display">\u2022\u2022\u2022\u2022\u2022\u2022</td>
+    <td>
+      <button class="btn btn-sm btn-primary btn-login-test" data-id="${acc.id}">테스트</button>
+      <span class="login-status" data-id="${acc.id}" style="color:${hasCookies ? '#66bb6a' : ''}">${hasCookies ? '성공' : ''}</span>
+    </td>
+    <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
+  `;
+  tbody.appendChild(tr);
+
+  tr.querySelector('.btn-login-test').addEventListener('click', async () => {
+    const id = acc.id;
+    const statusEl = tr.querySelector(`.login-status`);
+    statusEl.textContent = '테스트 중...';
+    statusEl.style.color = '#ffa726';
+    const result = await window.api.loginTest(id);
+    if (result.success) {
+      statusEl.textContent = '성공';
+      statusEl.style.color = '#66bb6a';
+    } else {
+      statusEl.textContent = `실패: ${result.error || ''}`;
+      statusEl.style.color = '#ef5350';
+    }
+  });
+
+  tr.querySelector('.btn-delete-account').addEventListener('click', async () => {
+    const id = acc.id;
+    if (!confirm(`"${id}" 계정을 삭제하시겠습니까?`)) { window.focus(); return; }
+    await window.api.deleteAccount(id);
+    accounts = accounts.filter(a => a.id !== id);
+    tr.remove();
+    window.focus();
+  });
+}
+
 function setupAddAccount() {
   document.getElementById('btn-add-account').addEventListener('click', async () => {
     const idInput = document.getElementById('new-account-id');
@@ -410,7 +449,7 @@ function setupAddAccount() {
     accounts.push({ id, password: pw, nickname: '' });
     idInput.value = '';
     pwInput.value = '';
-    renderAccountsTable();
+    appendAccountRow({ id, password: pw }, false);
   });
 
   // Enter 키
@@ -442,6 +481,7 @@ function setupAddAccount() {
       const result = await window.api.addAccount({ id, password: pw });
       if (result.success) {
         accounts.push({ id, password: pw, nickname: '' });
+        appendAccountRow({ id, password: pw }, false);
         added++;
       } else {
         skipped++;
@@ -449,7 +489,6 @@ function setupAddAccount() {
     }
 
     textarea.value = '';
-    renderAccountsTable();
     statusEl.textContent = `${added}개 추가, ${skipped}개 스킵`;
     setTimeout(() => { statusEl.textContent = ''; }, 5000);
   });
@@ -493,7 +532,7 @@ function setupAddAccount() {
     if (!confirm('모든 계정을 삭제하시겠습니까?')) { window.focus(); return; }
     await window.api.deleteAllAccounts();
     accounts = [];
-    renderAccountsTable();
+    document.getElementById('accounts-tbody').innerHTML = '';
     showToast('모든 계정이 삭제되었습니다.');
     window.focus();
   });
@@ -679,7 +718,7 @@ function renderMsList() {
     div.innerHTML = `
       <div style="display:flex; align-items:center; gap:6px;">
         <div style="flex:1; min-width:0;">
-          <div class="ms-item-title">${ms.post.title || '(제목 없음)'}</div>
+          <div class="ms-item-title">${(ms.post && ms.post.title) || '(제목 없음)'}</div>
           <div class="ms-item-sub">${ms.accountId || '계정 미선택'} \u00B7 ${ms.boardName || '게시판 미선택'}</div>
         </div>
         <button class="btn-ms-remove" title="삭제" style="background:none; border:none; color:#ef5350; font-size:16px; cursor:pointer; padding:2px 6px; flex-shrink:0;">&minus;</button>
@@ -766,15 +805,18 @@ function renderMsEditor() {
 
   // 공개 설정
   const visibility = ms.visibility || 'public';
-  document.querySelector(`input[name="ms-visibility"][value="${visibility}"]`).checked = true;
+  const visRadio = document.querySelector(`input[name="ms-visibility"][value="${visibility}"]`);
+  if (visRadio) visRadio.checked = true;
+  else document.querySelector('input[name="ms-visibility"][value="public"]').checked = true;
 
   // 제목
-  document.getElementById('ms-title').value = ms.post.title || '';
+  const post = ms.post || {};
+  document.getElementById('ms-title').value = post.title || '';
 
   // 세그먼트
   const segContainer = document.getElementById('ms-segments');
   segContainer.innerHTML = '';
-  (ms.post.bodySegments || []).forEach(seg => {
+  ((ms.post || {}).bodySegments || []).forEach(seg => {
     if (seg.type === 'text') MsHelpers.renderTextSegment(segContainer, seg.content);
     else if (seg.type === 'image') MsHelpers.renderImageSegment(segContainer, seg.filePath);
   });
@@ -816,6 +858,7 @@ function collectMsData() {
   ms.randomNickname = document.getElementById('ms-random-nickname').checked;
   ms.nickname = document.getElementById('ms-custom-nickname').value.trim() || '';
   ms.visibility = document.querySelector('input[name="ms-visibility"]:checked').value || 'public';
+  if (!ms.post) ms.post = {};
   ms.post.title = document.getElementById('ms-title').value.trim();
 
   // 세그먼트
