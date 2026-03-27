@@ -8,21 +8,16 @@ const DIST_SRC = path.join(ROOT, 'dist-src');
 const electronPath = path.join(ROOT, 'node_modules', '.bin', 'electron.cmd');
 
 // Main process JS files to compile with bytenode
+// NOTE: Files using page.evaluate()/frame.evaluate() CANNOT be bytenode-compiled
+//       because bytenode functions return [native code] on .toString(),
+//       which Puppeteer cannot serialize to the browser context.
 const MAIN_FILES = [
   'src/main/index.js',
   'src/main/ipc-handlers.js',
   'src/main/core/adb-helper.js',
-  'src/main/core/auth.js',
-  'src/main/core/browser-manager.js',
-  'src/main/core/comment-writer.js',
-  'src/main/core/crawl.js',
   'src/main/core/ip-changer.js',
   'src/main/core/ip-checker.js',
-  'src/main/core/nickname-changer.js',
   'src/main/core/nickname-generator.js',
-  'src/main/core/post-deleter.js',
-  'src/main/core/post-liker.js',
-  'src/main/core/post-writer.js',
   'src/main/data/store.js',
   'src/main/engine/executor.js',
   'src/main/engine/result-logger.js',
@@ -35,10 +30,21 @@ const NO_EXPORT_FILES = [
   'src/main/index.js',
 ];
 
-// Preload scripts — bytenode doesn't work in Electron's preload sandbox,
-// so these are obfuscated (not compiled to .jsc)
+// Preload scripts — obfuscated with target: 'node'
 const PRELOAD_FILES = [
   'src/main/preload.js',
+];
+
+// Main process files that use Puppeteer page.evaluate() — obfuscate only (not bytenode)
+const PUPPETEER_FILES = [
+  'src/main/core/auth.js',
+  'src/main/core/browser-manager.js',
+  'src/main/core/comment-writer.js',
+  'src/main/core/crawl.js',
+  'src/main/core/nickname-changer.js',
+  'src/main/core/post-deleter.js',
+  'src/main/core/post-liker.js',
+  'src/main/core/post-writer.js',
 ];
 
 // Renderer JS files to obfuscate
@@ -177,7 +183,24 @@ for (const relFile of RENDERER_FILES) {
   console.log(`  OK: ${relFile}`);
 }
 
-// Obfuscate preload scripts (target: 'node' — preload has access to Node.js require)
+// Obfuscate Puppeteer files (target: 'node' — use page.evaluate, can't be bytenode)
+for (const relFile of PUPPETEER_FILES) {
+  const absFile = path.join(DIST_SRC, relFile);
+  if (!fs.existsSync(absFile)) {
+    console.warn(`  SKIP (not found): ${relFile}`);
+    continue;
+  }
+
+  const source = fs.readFileSync(absFile, 'utf-8');
+  const result = JavaScriptObfuscator.obfuscate(source, {
+    ...obfuscatorOptions,
+    target: 'node',
+  });
+  fs.writeFileSync(absFile, result.getObfuscatedCode(), 'utf-8');
+  console.log(`  OK (puppeteer): ${relFile}`);
+}
+
+// Obfuscate preload scripts (target: 'node')
 for (const relFile of PRELOAD_FILES) {
   const absFile = path.join(DIST_SRC, relFile);
   if (!fs.existsSync(absFile)) {

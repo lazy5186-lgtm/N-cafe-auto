@@ -548,7 +548,6 @@ function registerHandlers(mainWindow) {
       const settings = store.loadSettings();
       const msData = store.loadGlobalManuscripts();
       const nicknameWords = store.loadNicknameWords();
-      const deleteSchedule = store.loadDeleteSchedule();
 
       const exportData = {
         _type: 'NCafeAuto-Export',
@@ -559,7 +558,6 @@ function registerHandlers(mainWindow) {
         manuscripts: msData.manuscripts || [],
         presets: msData.presets || [],
         nicknameWords,
-        deleteSchedule,
       };
 
       const { filePath } = await dialog.showSaveDialog(mainWindow, {
@@ -612,11 +610,6 @@ function registerHandlers(mainWindow) {
         store.saveNicknameWords(data.nicknameWords);
         nicknameGenerator.setCustomWords(data.nicknameWords.adjectives, data.nicknameWords.nouns);
       }
-      // 삭제 스케줄
-      if (data.deleteSchedule && Array.isArray(data.deleteSchedule)) {
-        store.saveDeleteSchedule(data.deleteSchedule);
-      }
-
       return { success: true, version: data._version, exportedAt: data._exportedAt };
     } catch (e) {
       return { success: false, error: e.message };
