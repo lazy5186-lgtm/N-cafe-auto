@@ -184,7 +184,18 @@ for (const relFile of RENDERER_FILES) {
   console.log(`  OK: ${relFile}`);
 }
 
-// Node-target obfuscation: safe options only (variable rename + string encryption)
+// Puppeteer files: NO stringArray — page.evaluate() callbacks are serialized to browser,
+// where module-scoped string decoder functions don't exist
+const puppeteerObfuscatorOptions = {
+  compact: true,
+  controlFlowFlattening: false,
+  deadCodeInjection: false,
+  stringArray: false,
+  selfDefending: false,
+  target: 'node',
+};
+
+// Preload/other node files: stringArray is safe (no cross-context serialization)
 const nodeObfuscatorOptions = {
   compact: true,
   controlFlowFlattening: false,
@@ -200,7 +211,7 @@ const nodeObfuscatorOptions = {
   target: 'node',
 };
 
-// Obfuscate Puppeteer files (target: 'node' — use page.evaluate, can't be bytenode)
+// Obfuscate Puppeteer files (variable rename only — no stringArray)
 for (const relFile of PUPPETEER_FILES) {
   const absFile = path.join(DIST_SRC, relFile);
   if (!fs.existsSync(absFile)) {
@@ -209,12 +220,12 @@ for (const relFile of PUPPETEER_FILES) {
   }
 
   const source = fs.readFileSync(absFile, 'utf-8');
-  const result = JavaScriptObfuscator.obfuscate(source, nodeObfuscatorOptions);
+  const result = JavaScriptObfuscator.obfuscate(source, puppeteerObfuscatorOptions);
   fs.writeFileSync(absFile, result.getObfuscatedCode(), 'utf-8');
   console.log(`  OK (puppeteer): ${relFile}`);
 }
 
-// Obfuscate preload scripts (target: 'node')
+// Obfuscate preload scripts (target: 'node', with stringArray)
 for (const relFile of PRELOAD_FILES) {
   const absFile = path.join(DIST_SRC, relFile);
   if (!fs.existsSync(absFile)) {
