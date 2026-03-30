@@ -105,11 +105,20 @@ class Executor extends EventEmitter {
     let browser = null;
     let page = null;
 
-    try {
+    // 계정 전환 시 브라우저 재시작 (랜덤 UA + 랜덤 해상도)
+    const openNewBrowser = async () => {
+      if (browser) {
+        if (currentLoggedInAccount) {
+          await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
+        }
+        await browser.close().catch(() => {});
+      }
       browser = await browserManager.launchBrowser();
       this._currentBrowser = browser;
-      page = await browserManager.createPage(browser);
+      page = await browserManager.createPage(browser, { randomFingerprint: true });
+    };
 
+    try {
       for (const ms of enabledMs) {
         if (this.state === 'stopped') break;
         const canCont = await this.waitIfPaused();
@@ -130,7 +139,7 @@ class Executor extends EventEmitter {
           continue;
         }
 
-        // 계정 전환 필요 시
+        // 계정 전환 필요 시 → 브라우저 재시작
         if (currentLoggedInAccount !== posterAccId) {
           if (settings.ipChange && settings.ipChange.enabled) {
             this.log('IP 변경 시작...');
@@ -143,9 +152,7 @@ class Executor extends EventEmitter {
             }
           }
 
-          if (currentLoggedInAccount) {
-            await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
-          }
+          await openNewBrowser();
 
           this.log(`${posterAccId} 로그인 시도...`);
           const loginResult = await auth.loginAccount(page, posterAcc.id, posterAcc.password);
@@ -201,7 +208,7 @@ class Executor extends EventEmitter {
           const isValidPostUrl = postUrl && postUrl.includes('cafe.naver.com') && !postUrl.includes('articles/write');
 
           if (ms.comments && ms.comments.length > 0 && isValidPostUrl) {
-            // 계정 전환 헬퍼
+            // 계정 전환 헬퍼 (브라우저 재시작)
             const switchAccount = async (targetAccId, randomNickname, customNickname) => {
               const hasNicknameChange = randomNickname || (customNickname && customNickname.trim());
               if (targetAccId === currentLoggedInAccount && !hasNicknameChange) return true;
@@ -224,7 +231,7 @@ class Executor extends EventEmitter {
                 }
 
                 this.log(`계정 전환: ${targetAccId}`);
-                await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
+                await openNewBrowser();
                 const result = await auth.loginAccount(page, targetAcc.id, targetAcc.password);
                 if (!result.success) {
                   this.log(`${targetAccId} 로그인 실패`);
@@ -345,10 +352,10 @@ class Executor extends EventEmitter {
               resultEntry.comments.push(cmtResult);
             }
 
-            // 포스팅 계정으로 복귀
+            // 포스팅 계정으로 복귀 (브라우저 재시작)
             if (currentLoggedInAccount !== posterAccId) {
               this.log(`원래 계정으로 복귀: ${posterAccId}`);
-              await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
+              await openNewBrowser();
               await auth.loginAccount(page, posterAcc.id, posterAcc.password);
               currentLoggedInAccount = posterAccId;
             }
@@ -376,11 +383,13 @@ class Executor extends EventEmitter {
         await browserManager.delay(3000);
       }
 
-      if (currentLoggedInAccount) {
-        await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
+      if (browser) {
+        if (currentLoggedInAccount) {
+          await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
+        }
+        await browser.close().catch(() => {});
+        this._currentBrowser = null;
       }
-      await browser.close();
-      this._currentBrowser = null;
     } catch (e) {
       this.log(`처리 오류: ${e.message}`);
       if (browser) {

@@ -3,16 +3,29 @@ const path = require('path');
 const fs = require('fs');
 
 const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:123.0) Gecko/20100101 Firefox/123.0",
-  "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/121.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0",
+  "Mozilla/5.0 (X11; Linux x86_64; rv:138.0) Gecko/20100101 Firefox/138.0",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
+];
+
+const VIEWPORTS = [
+  { width: 1920, height: 1080 },
+  { width: 1366, height: 768 },
+  { width: 1536, height: 864 },
+  { width: 1440, height: 900 },
+  { width: 1680, height: 1050 },
+  { width: 1280, height: 720 },
 ];
 
 function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function getRandomViewport() {
+  return VIEWPORTS[Math.floor(Math.random() * VIEWPORTS.length)];
 }
 
 function findChromePath() {
@@ -61,12 +74,17 @@ async function launchBrowser(chromePath) {
   return browser;
 }
 
-async function setupPage(page) {
-  const screen = await page.evaluate(() => ({
-    width: window.screen.availWidth,
-    height: window.screen.availHeight,
-  }));
-  await page.setViewport({ width: screen.width, height: screen.height });
+async function setupPage(page, options) {
+  const viewport = (options && options.randomFingerprint) ? getRandomViewport() : null;
+  if (viewport) {
+    await page.setViewport(viewport);
+  } else {
+    const screen = await page.evaluate(() => ({
+      width: window.screen.availWidth,
+      height: window.screen.availHeight,
+    }));
+    await page.setViewport({ width: screen.width, height: screen.height });
+  }
   await page.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
   });
@@ -74,9 +92,9 @@ async function setupPage(page) {
   page.on('dialog', async (dialog) => { try { await dialog.accept(); } catch (_) {} });
 }
 
-async function createPage(browser) {
+async function createPage(browser, options) {
   const page = await browser.newPage();
-  await setupPage(page);
+  await setupPage(page, options);
   return page;
 }
 

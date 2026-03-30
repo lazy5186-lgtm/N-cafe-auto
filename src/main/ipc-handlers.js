@@ -78,7 +78,7 @@ function registerHandlers(mainWindow) {
       await changeIPWithStatus(`로그인 테스트 (${accountId})`);
 
       browser = await browserManager.launchBrowser();
-      const page = await browserManager.createPage(browser);
+      const page = await browserManager.createPage(browser, { randomFingerprint: true });
       const result = await auth.loginAccount(page, account.id, account.password);
       if (result.success) {
         const cookies = await page.cookies();
@@ -196,7 +196,6 @@ function registerHandlers(mainWindow) {
   });
 
   ipcMain.handle('delete-schedule:delete-posts', async (_e, postUrls) => {
-    let browser = null;
     const results = [];
     try {
       // 삭제할 항목을 계정별로 그룹핑
@@ -207,9 +206,6 @@ function registerHandlers(mainWindow) {
         if (!grouped[entry.accountId]) grouped[entry.accountId] = [];
         grouped[entry.accountId].push(entry);
       }
-
-      browser = await browserManager.launchBrowser();
-      const page = await browserManager.createPage(browser);
 
       const settings = store.loadSettings();
 
@@ -234,33 +230,40 @@ function registerHandlers(mainWindow) {
           }
         }
 
-        const loginResult = await auth.loginAccount(page, account.id, account.password);
-        if (!loginResult.success) {
-          for (const entry of entries) {
-            store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: '로그인 실패' });
-            results.push({ postUrl: entry.postUrl, status: 'failed', error: '로그인 실패' });
-          }
-          continue;
-        }
+        // 계정마다 새 브라우저
+        let browser = null;
+        try {
+          browser = await browserManager.launchBrowser();
+          const page = await browserManager.createPage(browser, { randomFingerprint: true });
 
-        for (const entry of entries) {
-          try {
-            await postDeleter.deletePost(page, entry.postUrl);
-            store.updateDeleteEntry(entry.postUrl, { status: 'deleted', deletedAt: new Date().toISOString() });
-            results.push({ postUrl: entry.postUrl, status: 'deleted' });
-            safeSend('execution:log', { msg: `삭제 완료: ${entry.postTitle || entry.postUrl}` });
-          } catch (e) {
-            store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: e.message });
-            results.push({ postUrl: entry.postUrl, status: 'failed', error: e.message });
-            safeSend('execution:log', { msg: `삭제 실패: ${entry.postTitle || entry.postUrl} - ${e.message}` });
+          const loginResult = await auth.loginAccount(page, account.id, account.password);
+          if (!loginResult.success) {
+            for (const entry of entries) {
+              store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: '로그인 실패' });
+              results.push({ postUrl: entry.postUrl, status: 'failed', error: '로그인 실패' });
+            }
+            continue;
           }
+
+          for (const entry of entries) {
+            try {
+              await postDeleter.deletePost(page, entry.postUrl);
+              store.updateDeleteEntry(entry.postUrl, { status: 'deleted', deletedAt: new Date().toISOString() });
+              results.push({ postUrl: entry.postUrl, status: 'deleted' });
+              safeSend('execution:log', { msg: `삭제 완료: ${entry.postTitle || entry.postUrl}` });
+            } catch (e) {
+              store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: e.message });
+              results.push({ postUrl: entry.postUrl, status: 'failed', error: e.message });
+              safeSend('execution:log', { msg: `삭제 실패: ${entry.postTitle || entry.postUrl} - ${e.message}` });
+            }
+          }
+        } finally {
+          if (browser) await browser.close().catch(() => {});
         }
       }
 
-      await browser.close();
       return { success: true, results };
     } catch (e) {
-      if (browser) await browser.close().catch(() => {});
       return { success: false, error: e.message };
     }
   });
@@ -343,7 +346,7 @@ function registerHandlers(mainWindow) {
       let browser = null;
       try {
         browser = await browserManager.launchBrowser();
-        const page = await browserManager.createPage(browser);
+        const page = await browserManager.createPage(browser, { randomFingerprint: true });
         console.log(`${accountId} 쿠키 없음, 직접 로그인 시도...`);
         const loginResult = await auth.loginAccount(page, account.id, account.password);
         if (!loginResult.success) {
@@ -377,7 +380,7 @@ function registerHandlers(mainWindow) {
     let browser = null;
     try {
       browser = await browserManager.launchBrowser();
-      const page = await browserManager.createPage(browser);
+      const page = await browserManager.createPage(browser, { randomFingerprint: true });
       await page.setCookie(...cookies);
 
       // 네이버 도메인 진입
@@ -433,12 +436,9 @@ function registerHandlers(mainWindow) {
   ipcMain.handle('like:execute', async (_e, config) => {
     // config: { targetUrls: [url], likerAccountIds: [], randomMode: boolean, likeCount: number }
     likeAbortFlag = false;
-    let browser = null;
 
     try {
       const allSettings = store.loadSettings();
-      browser = await browserManager.launchBrowser();
-      const page = await browserManager.createPage(browser);
 
       const { targetUrls, likerAccountIds, randomMode, likeCount } = config;
 
@@ -485,18 +485,24 @@ function registerHandlers(mainWindow) {
             }
           }
 
-          // 로그인
-          safeSend('like:log', { msg: `${likerId} 로그인...` });
-          const loginResult = await auth.loginAccount(page, account.id, account.password);
-          if (!loginResult.success) {
-            safeSend('like:log', { msg: `${likerId} 로그인 실패` });
-            done++;
-            safeSend('like:progress', { current: done, total: totalWork });
-            continue;
-          }
-
-          // 좋아요 클릭
+          // 계정마다 새 브라우저 (랜덤 UA + 랜덤 해상도)
+          let browser = null;
           try {
+            browser = await browserManager.launchBrowser();
+            const page = await browserManager.createPage(browser, { randomFingerprint: true });
+
+            // 로그인
+            safeSend('like:log', { msg: `${likerId} 로그인...` });
+            const loginResult = await auth.loginAccount(page, account.id, account.password);
+            if (!loginResult.success) {
+              safeSend('like:log', { msg: `${likerId} 로그인 실패` });
+              done++;
+              safeSend('like:progress', { current: done, total: totalWork });
+              await browser.close().catch(() => {});
+              continue;
+            }
+
+            // 좋아요 클릭
             const likeResult = await postLiker.likePost(page, articleUrl);
             if (likeResult.isAuthor) {
               safeSend('like:log', { msg: `${likerId}: 본인 글 → 건너뜀` });
@@ -507,6 +513,8 @@ function registerHandlers(mainWindow) {
             }
           } catch (e) {
             safeSend('like:log', { msg: `${likerId}: 좋아요 실패 - ${e.message}` });
+          } finally {
+            if (browser) await browser.close().catch(() => {});
           }
 
           done++;
@@ -519,11 +527,9 @@ function registerHandlers(mainWindow) {
         }
       }
 
-      await browser.close();
       safeSend('like:complete', { success: true });
       return { success: true };
     } catch (e) {
-      if (browser) await browser.close().catch(() => {});
       safeSend('like:complete', { success: false, error: e.message });
       return { success: false, error: e.message };
     }
