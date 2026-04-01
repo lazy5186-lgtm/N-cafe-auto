@@ -93,65 +93,42 @@ async function focusEditorByClick(page) {
 async function typeTextInEditor(page, text) {
   const cleanContent = text.replace(/\*\*(.*?)\*\*/g, '$1');
   const lines = cleanContent.split('\n');
+  let typedTotal = 0;
 
-  // 모든 텍스트를 한 번의 page.evaluate에서 execCommand로 삽입
-  // (keyboard.type/keyboard.press 사용 안 함 — 탐지 방지)
-  await page.evaluate((lineArr) => {
-    for (let i = 0; i < lineArr.length; i++) {
-      const line = lineArr[i];
-      if (line.length > 0) {
-        document.execCommand('insertText', false, line);
-      }
-      if (i < lineArr.length - 1) {
-        document.execCommand('insertParagraph');
-      }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.trim().length === 0) {
+      await page.keyboard.press('Enter');
+      await delay(150);
+      continue;
     }
-  }, lines);
 
-  const totalChars = lines.reduce((sum, l) => sum + l.length, 0);
+    // execCommand로 한 줄 삽입 (줄 단위 개별 evaluate)
+    const inserted = await page.evaluate((t) => {
+      return document.execCommand('insertText', false, t);
+    }, line);
 
-  // 삽입 확인
-  const firstLine = lines.find(l => l.trim().length > 0) || '';
-  if (firstLine.length > 0) {
-    await delay(200);
-    const hasContent = await page.evaluate((t) => {
-      const paragraphs = document.querySelectorAll('.se-text-paragraph');
-      for (const p of paragraphs) {
-        if (p.textContent.includes(t.substring(0, Math.min(t.length, 10)))) return true;
-      }
-      return false;
-    }, firstLine);
+    if (!inserted) {
+      // execCommand 실패 시 keyboard.type 폴백
+      await page.keyboard.type(line, { delay: 10 });
+    }
 
-    if (!hasContent) {
-      console.log('텍스트 삽입 실패, 에디터 재focus 후 재시도');
-      await focusEditorByClick(page);
-      // 재시도: focus 직후 같은 evaluate에서 커서 배치 + 삽입
-      await page.evaluate((lineArr) => {
-        // 커서를 마지막 paragraph 끝에 배치
-        const paragraphs = document.querySelectorAll('.se-text-paragraph');
-        const last = paragraphs[paragraphs.length - 1];
-        if (last) {
-          const range = document.createRange();
-          const sel = window.getSelection();
-          range.selectNodeContents(last);
-          range.collapse(false);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-        for (let i = 0; i < lineArr.length; i++) {
-          const line = lineArr[i];
-          if (line.length > 0) {
-            document.execCommand('insertText', false, line);
-          }
-          if (i < lineArr.length - 1) {
-            document.execCommand('insertParagraph');
-          }
-        }
-      }, lines);
+    typedTotal += line.length;
+
+    // 다음 줄이 있으면 Enter
+    if (i < lines.length - 1) {
+      await page.keyboard.press('Enter');
+      await delay(100);
+    }
+
+    // 매 3줄마다 렌더링 대기
+    if (i > 0 && i % 3 === 0) {
+      await delay(200 + Math.random() * 100);
     }
   }
 
-  console.log(`텍스트 입력 완료 (${totalChars}자)`);
+  console.log(`텍스트 입력 완료 (${typedTotal}자)`);
 }
 
 async function selectBoard(page, menuId, boardName) {
@@ -235,8 +212,14 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   await navigateToWritePage(page, cafeId, menuId);
 
   // === 1. 본문 작성 (게시판 선택 전 — 에디터 re-init 없이 안정 상태) ===
-  await focusEditorByClick(page);
-  await delay(1000);
+  // 에디터 포커스 (참고 스크립트 방식: .se-component-content .se-text-paragraph 클릭 + 1500ms 대기)
+  const editorBody = await page.$('.se-component-content .se-text-paragraph');
+  if (editorBody) {
+    await editorBody.click();
+  } else {
+    await page.click('.se-component-content');
+  }
+  await delay(1500);
 
   for (let si = 0; si < bodySegments.length; si++) {
     const segment = bodySegments[si];
