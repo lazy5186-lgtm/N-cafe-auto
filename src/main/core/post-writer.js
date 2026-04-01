@@ -67,11 +67,46 @@ async function uploadImage(page, filePath) {
   }
 }
 
+async function ensureEditorFocus(page) {
+  const focused = await page.evaluate(() => {
+    const active = document.activeElement;
+    if (active && (active.contentEditable === 'true' || active.closest('[contenteditable="true"]'))) {
+      return true;
+    }
+    // contenteditable 요소를 찾아서 focus
+    const editable = document.querySelector('[contenteditable="true"]');
+    if (editable) {
+      editable.focus();
+      // 커서를 마지막 paragraph에 배치
+      const paragraph = editable.querySelector('.se-text-paragraph:last-child') || editable.querySelector('.se-text-paragraph');
+      if (paragraph) {
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(paragraph);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      return true;
+    }
+    return false;
+  });
+  return focused;
+}
+
 async function typeTextInEditor(page, text) {
   const cleanContent = text.replace(/\*\*(.*?)\*\*/g, '$1');
   const lines = cleanContent.split('\n');
   let typedTotal = 0;
-  let useKeyboardType = false; // execCommand 실패 시 이후 줄도 keyboard.type 사용
+  let useKeyboardType = false;
+
+  // 타이핑 시작 전 에디터 focus 확인
+  const editorReady = await ensureEditorFocus(page);
+  if (!editorReady) {
+    console.log('에디터 focus 실패, keyboard.type 모드로 전환');
+    useKeyboardType = true;
+  }
+  await delay(300);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -82,52 +117,37 @@ async function typeTextInEditor(page, text) {
     }
 
     if (useKeyboardType) {
-      // 이전에 execCommand 실패 확인됨 → keyboard.type 사용
       await page.keyboard.type(line, { delay: 10 });
     } else {
-      // execCommand 시도 전 현재 텍스트 길이 기록
-      const beforeLen = await page.evaluate(() => {
-        const paragraphs = document.querySelectorAll('.se-text-paragraph');
-        let total = 0;
-        paragraphs.forEach(p => total += p.textContent.length);
-        return total;
-      });
-
       const inserted = await page.evaluate((t) => {
         return document.execCommand('insertText', false, t);
       }, line);
 
       if (!inserted) {
+        // execCommand 실패 → focus 재확인 후 keyboard.type
+        await ensureEditorFocus(page);
+        await delay(200);
         await page.keyboard.type(line, { delay: 10 });
         useKeyboardType = true;
       } else {
-        // execCommand가 true를 반환했지만 실제 삽입 확인
-        await delay(100);
-        const afterLen = await page.evaluate(() => {
-          const paragraphs = document.querySelectorAll('.se-text-paragraph');
-          let total = 0;
-          paragraphs.forEach(p => total += p.textContent.length);
-          return total;
-        });
-
-        if (afterLen <= beforeLen) {
-          // 텍스트가 실제로 삽입되지 않음 → 에디터 재포커스 후 keyboard.type
-          console.log('execCommand 삽입 실패 감지, keyboard.type로 전환');
-          await page.evaluate(() => {
-            const paragraph = document.querySelector('.se-text-paragraph');
-            if (paragraph) {
-              paragraph.click();
-              const range = document.createRange();
-              const sel = window.getSelection();
-              range.selectNodeContents(paragraph);
-              range.collapse(false);
-              sel.removeAllRanges();
-              sel.addRange(range);
+        // 첫 번째 줄에서만 실제 삽입 확인 (이후는 신뢰)
+        if (i === 0 || (i === 1 && typedTotal === 0)) {
+          await delay(100);
+          const hasContent = await page.evaluate((t) => {
+            const paragraphs = document.querySelectorAll('.se-text-paragraph');
+            for (const p of paragraphs) {
+              if (p.textContent.includes(t.substring(0, 10))) return true;
             }
-          });
-          await delay(300);
-          await page.keyboard.type(line, { delay: 10 });
-          useKeyboardType = true;
+            return false;
+          }, line);
+
+          if (!hasContent) {
+            console.log('execCommand 삽입 실패 감지, keyboard.type로 전환');
+            await ensureEditorFocus(page);
+            await delay(300);
+            await page.keyboard.type(line, { delay: 10 });
+            useKeyboardType = true;
+          }
         }
       }
     }
@@ -139,7 +159,6 @@ async function typeTextInEditor(page, text) {
       await delay(100);
     }
 
-    // 매 3줄마다 렌더링 대기
     if (i > 0 && i % 3 === 0) {
       await delay(200 + Math.random() * 100);
     }
@@ -252,7 +271,9 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
       const paragraphs = document.querySelectorAll('.se-text-paragraph');
       const last = paragraphs[paragraphs.length - 1];
       last.scrollIntoView({ block: 'center' });
-      last.click();
+      // contenteditable 요소 명시적 focus
+      const editable = last.closest('[contenteditable="true"]');
+      if (editable) editable.focus();
       const range = document.createRange();
       const sel = window.getSelection();
       if (last.childNodes.length > 0) {
@@ -278,26 +299,26 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     await page.keyboard.press('Enter');
     await delay(500);
   } else {
-    // 에디터 본문 영역에 포커스 및 커서 배치 (Range/Selection API 사용)
-    const focused = await page.evaluate(() => {
+    // 에디터 본문 영역에 포커스 및 커서 배치
+    await page.evaluate(() => {
       const paragraph = document.querySelector('.se-text-paragraph');
       if (paragraph) {
         paragraph.scrollIntoView({ block: 'center' });
-        paragraph.click();
+        // contenteditable 요소 명시적 focus
+        const editable = paragraph.closest('[contenteditable="true"]');
+        if (editable) editable.focus();
         const range = document.createRange();
         const sel = window.getSelection();
         range.selectNodeContents(paragraph);
         range.collapse(false);
         sel.removeAllRanges();
         sel.addRange(range);
-        return true;
+      } else {
+        // paragraph 없으면 contenteditable 직접 focus
+        const editable = document.querySelector('[contenteditable="true"]');
+        if (editable) editable.focus();
       }
-      return false;
     });
-    if (!focused) {
-      const content = await page.$('.se-component-content');
-      if (content) await content.click();
-    }
   }
   await delay(1000);
 
