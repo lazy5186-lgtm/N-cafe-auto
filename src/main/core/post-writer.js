@@ -71,6 +71,7 @@ async function typeTextInEditor(page, text) {
   const cleanContent = text.replace(/\*\*(.*?)\*\*/g, '$1');
   const lines = cleanContent.split('\n');
   let typedTotal = 0;
+  let useKeyboardType = false; // execCommand 실패 시 이후 줄도 keyboard.type 사용
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -80,12 +81,55 @@ async function typeTextInEditor(page, text) {
       continue;
     }
 
-    const inserted = await page.evaluate((t) => {
-      return document.execCommand('insertText', false, t);
-    }, line);
-
-    if (!inserted) {
+    if (useKeyboardType) {
+      // 이전에 execCommand 실패 확인됨 → keyboard.type 사용
       await page.keyboard.type(line, { delay: 10 });
+    } else {
+      // execCommand 시도 전 현재 텍스트 길이 기록
+      const beforeLen = await page.evaluate(() => {
+        const paragraphs = document.querySelectorAll('.se-text-paragraph');
+        let total = 0;
+        paragraphs.forEach(p => total += p.textContent.length);
+        return total;
+      });
+
+      const inserted = await page.evaluate((t) => {
+        return document.execCommand('insertText', false, t);
+      }, line);
+
+      if (!inserted) {
+        await page.keyboard.type(line, { delay: 10 });
+        useKeyboardType = true;
+      } else {
+        // execCommand가 true를 반환했지만 실제 삽입 확인
+        await delay(100);
+        const afterLen = await page.evaluate(() => {
+          const paragraphs = document.querySelectorAll('.se-text-paragraph');
+          let total = 0;
+          paragraphs.forEach(p => total += p.textContent.length);
+          return total;
+        });
+
+        if (afterLen <= beforeLen) {
+          // 텍스트가 실제로 삽입되지 않음 → 에디터 재포커스 후 keyboard.type
+          console.log('execCommand 삽입 실패 감지, keyboard.type로 전환');
+          await page.evaluate(() => {
+            const paragraph = document.querySelector('.se-text-paragraph');
+            if (paragraph) {
+              paragraph.click();
+              const range = document.createRange();
+              const sel = window.getSelection();
+              range.selectNodeContents(paragraph);
+              range.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          });
+          await delay(300);
+          await page.keyboard.type(line, { delay: 10 });
+          useKeyboardType = true;
+        }
+      }
     }
 
     typedTotal += line.length;
@@ -234,11 +278,25 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     await page.keyboard.press('Enter');
     await delay(500);
   } else {
-    const editorBody = await page.$('.se-text-paragraph');
-    if (editorBody) {
-      await editorBody.click();
-    } else {
-      await page.click('.se-component-content');
+    // 에디터 본문 영역에 포커스 및 커서 배치 (Range/Selection API 사용)
+    const focused = await page.evaluate(() => {
+      const paragraph = document.querySelector('.se-text-paragraph');
+      if (paragraph) {
+        paragraph.scrollIntoView({ block: 'center' });
+        paragraph.click();
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(paragraph);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return true;
+      }
+      return false;
+    });
+    if (!focused) {
+      const content = await page.$('.se-component-content');
+      if (content) await content.click();
     }
   }
   await delay(1000);
