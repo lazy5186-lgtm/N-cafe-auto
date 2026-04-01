@@ -212,9 +212,10 @@ async function fetchBoardsAPI(page, cafeId) {
           return { error: 'menus not found', sample: JSON.stringify(json).substring(0, 500) };
         }
 
-        // 게시판만 필터 (menuType이 B=게시판, L=링크게시판 등)
+        // 실제 게시판만 필터 (구분선/폴더 제외)
+        const excludeTypes = ['S', 'F']; // S=구분선, F=폴더
         const boards = menus
-          .filter(m => m.menuId && m.menuName)
+          .filter(m => m.menuId && m.menuName && !excludeTypes.includes(m.menuType))
           .map(m => ({
             menuId: String(m.menuId),
             menuName: m.menuName.trim(),

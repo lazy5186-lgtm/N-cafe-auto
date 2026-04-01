@@ -68,26 +68,29 @@ async function uploadImage(page, filePath) {
 }
 
 async function focusEditorByClick(page) {
-  // Puppeteer 클릭으로 에디터 focus (원본 코드 방식)
-  try {
-    const paragraph = await page.$('.se-text-paragraph');
-    if (paragraph) {
-      await paragraph.evaluate(el => el.scrollIntoView({ block: 'center' }));
-      await paragraph.click();
+  // 이미지 업로드 등으로 frame이 재생성될 수 있으므로 재시도 포함
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      if (attempt > 1) await delay(1000);
+      const allPs = await page.$$('.se-text-paragraph');
+      if (allPs.length > 0) {
+        const last = allPs[allPs.length - 1];
+        await last.evaluate(el => el.scrollIntoView({ block: 'center' }));
+        await last.click();
+        await delay(300);
+        return true;
+      }
+      await page.click('.se-component-content');
       await delay(300);
       return true;
+    } catch (e) {
+      if (attempt === 2) {
+        console.log('에디터 focus 실패:', e.message);
+        return false;
+      }
     }
-    const editable = await page.$('[contenteditable="true"]');
-    if (editable) {
-      await editable.click();
-      await delay(300);
-      return true;
-    }
-    return false;
-  } catch (e) {
-    console.log('에디터 focus 실패:', e.message);
-    return false;
   }
+  return false;
 }
 
 async function typeTextInEditor(page, text) {
@@ -211,16 +214,51 @@ async function selectBoard(page, menuId, boardName) {
 async function writePost(page, cafeId, menuId, title, bodySegments, boardName, visibility) {
   await navigateToWritePage(page, cafeId, menuId);
 
-  // === 1. 본문 작성 (게시판 선택 전 — 에디터 re-init 없이 안정 상태) ===
-  // 에디터 포커스 (참고 스크립트 방식: .se-component-content .se-text-paragraph 클릭 + 1500ms 대기)
-  const editorBody = await page.$('.se-component-content .se-text-paragraph');
-  if (editorBody) {
-    await editorBody.click();
-  } else {
-    await page.click('.se-component-content');
+  // === 1. 게시판 선택 (안내 문구/양식 로드) ===
+  const boardSelected = await selectBoard(page, menuId, boardName);
+  if (!boardSelected) {
+    throw new Error(`게시판 선택 실패: ${boardName || menuId}`);
   }
-  await delay(1500);
 
+  // 안내 문구 로드 완료 대기 (고정 시간 대신 실제 로드 확인)
+  console.log('게시판 양식 로드 대기...');
+  let hasTemplate = false;
+  try {
+    await page.waitForFunction(() => {
+      const paragraphs = document.querySelectorAll('.se-text-paragraph');
+      for (const p of paragraphs) {
+        if (p.textContent.trim().length > 0) return true;
+      }
+      return false;
+    }, { timeout: 10000 });
+    hasTemplate = true;
+    console.log('게시판 안내 문구 감지됨');
+  } catch (e) {
+    console.log('안내 문구 없음, 빈 에디터에서 작성');
+  }
+  await delay(2000);
+
+  // === 2. 커서 위치 확인 + Enter로 작성 시작 ===
+  // 게시판 선택 후 SmartEditor가 커서를 안내 문구 끝에 자동 배치함
+  const cursorInfo = await page.evaluate(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return '선택 없음';
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    const text = (node.textContent || '').trim();
+    const offset = range.startOffset;
+    const nearby = text.substring(Math.max(0, offset - 15), offset) + '|' + text.substring(offset, offset + 15);
+    return `"${nearby}" (offset: ${offset}, nodeType: ${node.nodeType})`;
+  });
+  console.log('커서 위치:', cursorInfo);
+
+  // Enter 2번 → 안내 문구 다음에 새 줄 생성
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await delay(500);
+  console.log('Enter 2회 완료');
+
+  // === 3. 본문 작성 ===
   for (let si = 0; si < bodySegments.length; si++) {
     const segment = bodySegments[si];
     if (segment.type === 'text') {
@@ -237,7 +275,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
 
   await delay(2000);
 
-  // === 2. 제목 입력 ===
+  // === 4. 제목 입력 ===
   console.log('제목 입력 중...');
   await page.waitForSelector('.textarea_input', { timeout: 10000 });
   const titleElement = await page.$('.textarea_input');
@@ -250,14 +288,6 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   } else {
     throw new Error('제목 요소를 찾을 수 없습니다');
   }
-
-  // === 3. 게시판 선택 (본문/제목 작성 후 — 양식이 기존 내용 위에 로드됨) ===
-  const boardSelected = await selectBoard(page, menuId, boardName);
-  if (!boardSelected) {
-    throw new Error(`게시판 선택 실패: ${boardName || menuId}`);
-  }
-  console.log('게시판 선택 완료, 양식 로드 대기...');
-  await delay(3000);
 
   // === 4. 공개 설정 (DOM 새로 조회) ===
   try {
