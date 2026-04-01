@@ -68,45 +68,28 @@ async function uploadImage(page, filePath) {
 }
 
 async function ensureEditorFocus(page) {
-  const focused = await page.evaluate(() => {
-    const active = document.activeElement;
-    if (active && (active.contentEditable === 'true' || active.closest('[contenteditable="true"]'))) {
+  // Puppeteer 실제 마우스 클릭으로 CDP 레벨 focus 획득
+  try {
+    const paragraph = await page.$('.se-text-paragraph');
+    if (paragraph) {
+      await paragraph.evaluate(el => el.scrollIntoView({ block: 'center' }));
+      await paragraph.click(); // Puppeteer click → 실제 mousedown/mouseup/click
+      await delay(300);
       return true;
     }
-    // contenteditable 요소를 찾아서 focus
-    const editable = document.querySelector('[contenteditable="true"]');
-    if (editable) {
-      editable.focus();
-      // 커서를 마지막 paragraph에 배치
-      const paragraph = editable.querySelector('.se-text-paragraph:last-child') || editable.querySelector('.se-text-paragraph');
-      if (paragraph) {
-        const range = document.createRange();
-        const sel = window.getSelection();
-        range.selectNodeContents(paragraph);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-      return true;
-    }
+    await page.click('[contenteditable="true"]');
+    await delay(300);
+    return true;
+  } catch (e) {
+    console.log('에디터 focus 실패:', e.message);
     return false;
-  });
-  return focused;
+  }
 }
 
 async function typeTextInEditor(page, text) {
   const cleanContent = text.replace(/\*\*(.*?)\*\*/g, '$1');
   const lines = cleanContent.split('\n');
   let typedTotal = 0;
-  let useKeyboardType = false;
-
-  // 타이핑 시작 전 에디터 focus 확인
-  const editorReady = await ensureEditorFocus(page);
-  if (!editorReady) {
-    console.log('에디터 focus 실패, keyboard.type 모드로 전환');
-    useKeyboardType = true;
-  }
-  await delay(300);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -116,39 +99,30 @@ async function typeTextInEditor(page, text) {
       continue;
     }
 
-    if (useKeyboardType) {
+    // execCommand 시도 (빠른 방식)
+    const inserted = await page.evaluate((t) => {
+      return document.execCommand('insertText', false, t);
+    }, line);
+
+    if (!inserted) {
       await page.keyboard.type(line, { delay: 10 });
-    } else {
-      const inserted = await page.evaluate((t) => {
-        return document.execCommand('insertText', false, t);
+    }
+
+    // 첫 번째 유효 줄에서 실제 삽입 확인
+    if (typedTotal === 0) {
+      await delay(100);
+      const hasContent = await page.evaluate((t) => {
+        const paragraphs = document.querySelectorAll('.se-text-paragraph');
+        for (const p of paragraphs) {
+          if (p.textContent.includes(t.substring(0, Math.min(t.length, 10)))) return true;
+        }
+        return false;
       }, line);
 
-      if (!inserted) {
-        // execCommand 실패 → focus 재확인 후 keyboard.type
+      if (!hasContent) {
+        console.log('텍스트 삽입 실패 감지, 에디터 재focus 후 재시도');
         await ensureEditorFocus(page);
-        await delay(200);
         await page.keyboard.type(line, { delay: 10 });
-        useKeyboardType = true;
-      } else {
-        // 첫 번째 줄에서만 실제 삽입 확인 (이후는 신뢰)
-        if (i === 0 || (i === 1 && typedTotal === 0)) {
-          await delay(100);
-          const hasContent = await page.evaluate((t) => {
-            const paragraphs = document.querySelectorAll('.se-text-paragraph');
-            for (const p of paragraphs) {
-              if (p.textContent.includes(t.substring(0, 10))) return true;
-            }
-            return false;
-          }, line);
-
-          if (!hasContent) {
-            console.log('execCommand 삽입 실패 감지, keyboard.type로 전환');
-            await ensureEditorFocus(page);
-            await delay(300);
-            await page.keyboard.type(line, { delay: 10 });
-            useKeyboardType = true;
-          }
-        }
       }
     }
 
@@ -265,60 +239,31 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   });
 
   if (hasTemplate) {
-    // 양식이 있으면 마지막 paragraph 끝에 커서 배치
+    // 양식이 있으면 마지막 paragraph 끝으로 Puppeteer 클릭 후 Enter
     console.log('게시판 양식 감지됨 — 마지막 paragraph 끝으로 이동');
-    await page.evaluate(() => {
-      const paragraphs = document.querySelectorAll('.se-text-paragraph');
-      const last = paragraphs[paragraphs.length - 1];
-      last.scrollIntoView({ block: 'center' });
-      // contenteditable 요소 명시적 focus
-      const editable = last.closest('[contenteditable="true"]');
-      if (editable) editable.focus();
-      const range = document.createRange();
-      const sel = window.getSelection();
-      if (last.childNodes.length > 0) {
-        const lastChild = last.childNodes[last.childNodes.length - 1];
-        if (lastChild.nodeType === 3) {
-          range.setStart(lastChild, lastChild.length);
-          range.setEnd(lastChild, lastChild.length);
-        } else {
-          range.setStartAfter(lastChild);
-          range.setEndAfter(lastChild);
-        }
-      } else {
-        range.selectNodeContents(last);
-        range.collapse(false);
-      }
-      sel.removeAllRanges();
-      sel.addRange(range);
-    });
-    await delay(500);
+    const paragraphs = await page.$$('.se-text-paragraph');
+    if (paragraphs.length > 0) {
+      const lastParagraph = paragraphs[paragraphs.length - 1];
+      await lastParagraph.evaluate(el => el.scrollIntoView({ block: 'center' }));
+      await lastParagraph.click(); // Puppeteer 실제 마우스 클릭 → CDP focus
+      await delay(500);
+    }
     await page.keyboard.press('End');
     await delay(200);
     await page.keyboard.press('Enter');
     await page.keyboard.press('Enter');
     await delay(500);
   } else {
-    // 에디터 본문 영역에 포커스 및 커서 배치
-    await page.evaluate(() => {
-      const paragraph = document.querySelector('.se-text-paragraph');
-      if (paragraph) {
-        paragraph.scrollIntoView({ block: 'center' });
-        // contenteditable 요소 명시적 focus
-        const editable = paragraph.closest('[contenteditable="true"]');
-        if (editable) editable.focus();
-        const range = document.createRange();
-        const sel = window.getSelection();
-        range.selectNodeContents(paragraph);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } else {
-        // paragraph 없으면 contenteditable 직접 focus
-        const editable = document.querySelector('[contenteditable="true"]');
-        if (editable) editable.focus();
-      }
-    });
+    // 양식 없음 — Puppeteer 클릭으로 에디터 focus
+    const paragraph = await page.$('.se-text-paragraph');
+    if (paragraph) {
+      await paragraph.evaluate(el => el.scrollIntoView({ block: 'center' }));
+      await paragraph.click(); // Puppeteer 실제 마우스 클릭 → CDP focus
+    } else {
+      await page.click('[contenteditable="true"]').catch(() =>
+        page.click('.se-component-content').catch(() => {})
+      );
+    }
   }
   await delay(1000);
 
@@ -331,21 +276,8 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     } else if (segment.type === 'image') {
       const uploaded = await uploadImage(page, segment.filePath);
       if (uploaded) {
-        // 이미지 삽입 후 에디터 끝으로 포커스 이동
-        await page.evaluate(() => {
-          const paragraphs = document.querySelectorAll('.se-component-content .se-text-paragraph');
-          if (paragraphs.length > 0) {
-            const last = paragraphs[paragraphs.length - 1];
-            last.click();
-            // 커서를 텍스트 끝으로
-            const range = document.createRange();
-            const sel = window.getSelection();
-            range.selectNodeContents(last);
-            range.collapse(false);
-            sel.removeAllRanges();
-            sel.addRange(range);
-          }
-        });
+        // 이미지 삽입 후 Puppeteer 클릭으로 에디터 focus 복구
+        await ensureEditorFocus(page);
         await delay(1000);
       }
     }
