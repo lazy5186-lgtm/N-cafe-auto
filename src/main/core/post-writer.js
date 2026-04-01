@@ -234,68 +234,10 @@ async function selectBoard(page, menuId, boardName) {
 async function writePost(page, cafeId, menuId, title, bodySegments, boardName, visibility) {
   await navigateToWritePage(page, cafeId, menuId);
 
-  // === 1. 게시판 선택 (선택하면 양식이 로드됨) ===
-  const boardSelected = await selectBoard(page, menuId, boardName);
-  if (!boardSelected) {
-    throw new Error(`게시판 선택 실패: ${boardName || menuId}`);
-  }
-  console.log('게시판 양식 로드 대기...');
-  await delay(3000);
-
-  // === 2. 양식 감지 + 에디터 포커스 ===
-  const hasTemplate = await page.evaluate(() => {
-    const paragraphs = document.querySelectorAll('.se-text-paragraph');
-    for (const p of paragraphs) {
-      if (p.textContent.trim().length > 0) return true;
-    }
-    return false;
-  });
-
-  if (hasTemplate) {
-    // 양식이 있으면 마지막 paragraph 끝으로 이동
-    console.log('게시판 양식 감지됨 — 마지막 paragraph 끝으로 이동');
-    // Puppeteer 클릭으로 에디터 focus
-    const paragraphs = await page.$$('.se-text-paragraph');
-    if (paragraphs.length > 0) {
-      const lastParagraph = paragraphs[paragraphs.length - 1];
-      await lastParagraph.evaluate(el => el.scrollIntoView({ block: 'center' }));
-      await lastParagraph.click();
-      await delay(500);
-    }
-    // 커서 이동 + 줄바꿈 모두 execCommand로 (CDP keyboard 미사용)
-    await page.evaluate(() => {
-      const paragraphs = document.querySelectorAll('.se-text-paragraph');
-      const last = paragraphs[paragraphs.length - 1];
-      if (last) {
-        const range = document.createRange();
-        const sel = window.getSelection();
-        if (last.childNodes.length > 0) {
-          const lastChild = last.childNodes[last.childNodes.length - 1];
-          if (lastChild.nodeType === 3) {
-            range.setStart(lastChild, lastChild.length);
-            range.setEnd(lastChild, lastChild.length);
-          } else {
-            range.setStartAfter(lastChild);
-            range.setEndAfter(lastChild);
-          }
-        } else {
-          range.selectNodeContents(last);
-          range.collapse(false);
-        }
-        sel.removeAllRanges();
-        sel.addRange(range);
-        document.execCommand('insertParagraph');
-        document.execCommand('insertParagraph');
-      }
-    });
-    await delay(500);
-  } else {
-    // 양식 없음 — Puppeteer 클릭으로 에디터 focus
-    await focusEditorByClick(page);
-  }
+  // === 1. 본문 작성 (게시판 선택 전 — 에디터 re-init 없이 안정 상태) ===
+  await focusEditorByClick(page);
   await delay(1000);
 
-  // === 3. bodySegments 순서대로 텍스트/이미지 삽입 ===
   for (let si = 0; si < bodySegments.length; si++) {
     const segment = bodySegments[si];
     if (segment.type === 'text') {
@@ -304,7 +246,6 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     } else if (segment.type === 'image') {
       const uploaded = await uploadImage(page, segment.filePath);
       if (uploaded) {
-        // 이미지 삽입 후 Puppeteer 클릭으로 에디터 focus 복구
         await focusEditorByClick(page);
         await delay(1000);
       }
@@ -313,7 +254,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
 
   await delay(2000);
 
-  // === 3. 제목 입력 ===
+  // === 2. 제목 입력 ===
   console.log('제목 입력 중...');
   await page.waitForSelector('.textarea_input', { timeout: 10000 });
   const titleElement = await page.$('.textarea_input');
@@ -327,22 +268,26 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     throw new Error('제목 요소를 찾을 수 없습니다');
   }
 
-  // === 5. 공개 설정 ===
+  // === 3. 게시판 선택 (본문/제목 작성 후 — 양식이 기존 내용 위에 로드됨) ===
+  const boardSelected = await selectBoard(page, menuId, boardName);
+  if (!boardSelected) {
+    throw new Error(`게시판 선택 실패: ${boardName || menuId}`);
+  }
+  console.log('게시판 선택 완료, 양식 로드 대기...');
+  await delay(3000);
+
+  // === 4. 공개 설정 (DOM 새로 조회) ===
   try {
-    const openSetBtn = await page.$('.btn_open_set');
-    if (openSetBtn) {
-      await openSetBtn.click();
-      await delay(1000);
-      const radioId = (visibility === 'member') ? 'input#member[name="public"]' : 'input#all[name="public"]';
-      const radio = await page.$(radioId);
-      if (radio) {
-        await radio.click();
-        console.log(`공개 설정: ${visibility === 'member' ? '멤버공개' : '전체공개'} 선택`);
-        await delay(500);
-      }
-      await openSetBtn.click().catch(() => {});
-      await delay(500);
-    }
+    await page.waitForSelector('.btn_open_set', { timeout: 5000 });
+    await page.click('.btn_open_set');
+    await delay(1000);
+    const radioSelector = (visibility === 'member') ? 'input#member[name="public"]' : 'input#all[name="public"]';
+    await page.waitForSelector(radioSelector, { timeout: 5000 });
+    await page.click(radioSelector);
+    console.log(`공개 설정: ${visibility === 'member' ? '멤버공개' : '전체공개'} 선택`);
+    await delay(500);
+    await page.click('.btn_open_set').catch(() => {});
+    await delay(500);
   } catch (e) {
     console.log('공개 설정 변경 실패 (무시):', e.message);
   }
