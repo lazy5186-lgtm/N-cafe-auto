@@ -23,15 +23,15 @@ class Executor extends EventEmitter {
   async randomDelay() {
     const seconds = Math.floor(Math.random() * 41) + 60; // 60~100
     this.log(`다음 작업까지 ${seconds}초 대기...`);
-    for (let elapsed = 0; elapsed < seconds; elapsed += 5) {
+    for (let elapsed = 0; elapsed < seconds; elapsed += 10) {
       if (this.state === 'stopped') return;
       const canCont = await this.waitIfPaused();
       if (!canCont) return;
       const remaining = seconds - elapsed;
-      if (remaining > 5) {
+      if (remaining > 10) {
         this.log(`대기 중... ${remaining}초 남음`);
       }
-      await browserManager.delay(Math.min(5000, remaining * 1000));
+      await browserManager.delay(Math.min(10000, remaining * 1000));
     }
     this.log('대기 완료, 다음 작업 진행');
   }

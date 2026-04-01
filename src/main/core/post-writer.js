@@ -68,29 +68,22 @@ async function uploadImage(page, filePath) {
 }
 
 async function focusEditorByClick(page) {
-  // 이미지 업로드 등으로 frame이 재생성될 수 있으므로 재시도 포함
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      if (attempt > 1) await delay(1000);
-      const allPs = await page.$$('.se-text-paragraph');
-      if (allPs.length > 0) {
-        const last = allPs[allPs.length - 1];
-        await last.evaluate(el => el.scrollIntoView({ block: 'center' }));
-        await last.click();
-        await delay(300);
-        return true;
-      }
-      await page.click('.se-component-content');
+  try {
+    const allPs = await page.$$('.se-text-paragraph');
+    if (allPs.length > 0) {
+      const last = allPs[allPs.length - 1];
+      await last.evaluate(el => el.scrollIntoView({ block: 'center' }));
+      await last.click();
       await delay(300);
       return true;
-    } catch (e) {
-      if (attempt === 2) {
-        console.log('에디터 focus 실패:', e.message);
-        return false;
-      }
     }
+    await page.click('.se-component-content');
+    await delay(300);
+    return true;
+  } catch (e) {
+    console.log('에디터 focus 실패:', e.message);
+    return false;
   }
-  return false;
 }
 
 async function typeTextInEditor(page, text) {
@@ -114,6 +107,7 @@ async function typeTextInEditor(page, text) {
 
     if (!inserted) {
       // execCommand 실패 시 keyboard.type 폴백
+      console.log(`execCommand 실패 (줄 ${i}), keyboard.type 폴백`);
       await page.keyboard.type(line, { delay: 10 });
     }
 
@@ -225,11 +219,8 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   let hasTemplate = false;
   try {
     await page.waitForFunction(() => {
-      const paragraphs = document.querySelectorAll('.se-text-paragraph');
-      for (const p of paragraphs) {
-        if (p.textContent.trim().length > 0) return true;
-      }
-      return false;
+      // se-is-empty 클래스가 없는 텍스트 모듈 = 안내 문구 있음
+      return !!document.querySelector('.se-module.se-module-text:not(.se-is-empty)');
     }, { timeout: 10000 });
     hasTemplate = true;
     console.log('게시판 안내 문구 감지됨');
@@ -238,8 +229,8 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   }
   await delay(2000);
 
-  // === 2. 커서 위치 확인 + Enter로 작성 시작 ===
-  // 게시판 선택 후 SmartEditor가 커서를 안내 문구 끝에 자동 배치함
+  // === 2. 에디터 포커스 + 작성 위치 설정 ===
+  // 커서 위치 확인
   const cursorInfo = await page.evaluate(() => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return '선택 없음';
@@ -247,16 +238,28 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     const node = range.startContainer;
     const text = (node.textContent || '').trim();
     const offset = range.startOffset;
-    const nearby = text.substring(Math.max(0, offset - 15), offset) + '|' + text.substring(offset, offset + 15);
-    return `"${nearby}" (offset: ${offset}, nodeType: ${node.nodeType})`;
+    return `"${text.substring(Math.max(0, offset - 10), offset)}|${text.substring(offset, offset + 10)}" (offset:${offset})`;
   });
   console.log('커서 위치:', cursorInfo);
 
-  // Enter 2번 → 안내 문구 다음에 새 줄 생성
-  await page.keyboard.press('Enter');
-  await page.keyboard.press('Enter');
-  await delay(500);
-  console.log('Enter 2회 완료');
+  if (hasTemplate) {
+    // 안내 문구 있음 → SmartEditor가 자동 focus + 커서를 안내 문구 끝에 배치
+    // 클릭 없이 Enter만 치면 안내 문구 다음에 새 줄 생성
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    await delay(500);
+    console.log('안내 문구 끝에서 Enter 2회 → 작성 시작');
+  } else {
+    // 안내 문구 없음 → 에디터 auto-focus 안 되므로 직접 클릭
+    const editorBody = await page.$('.se-component-content .se-text-paragraph');
+    if (editorBody) {
+      await editorBody.click();
+    } else {
+      await page.click('.se-component-content');
+    }
+    await delay(1500);
+    console.log('빈 에디터 클릭 → 작성 시작');
+  }
 
   // === 3. 본문 작성 ===
   for (let si = 0; si < bodySegments.length; si++) {

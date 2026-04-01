@@ -212,16 +212,37 @@ async function fetchBoardsAPI(page, cafeId) {
           return { error: 'menus not found', sample: JSON.stringify(json).substring(0, 500) };
         }
 
-        // 실제 게시판만 필터 (구분선/폴더 제외)
-        const excludeTypes = ['S', 'F']; // S=구분선, F=폴더
-        const boards = menus
-          .filter(m => m.menuId && m.menuName && !excludeTypes.includes(m.menuType))
-          .map(m => ({
+        // fold: true 폴더 내부 게시판 제외 (폐쇄/숨김 게시판)
+        let insideFoldedFolder = false;
+        const boards = [];
+        for (const m of menus) {
+          // 폴더: fold 상태 추적
+          if (m.menuType === 'F') {
+            if (!m.indent) insideFoldedFolder = m.fold === true;
+            continue;
+          }
+          // 구분선 스킵
+          if (m.menuType === 'S') continue;
+          // 비들여쓰기 항목 → 폴더 밖으로 나옴
+          if (!m.indent) insideFoldedFolder = false;
+          // fold: true 폴더 내부 항목 제외
+          if (insideFoldedFolder && m.indent) continue;
+          // 이름/ID 없는 항목 제외
+          if (!m.menuId || !m.menuName) continue;
+
+          boards.push({
             menuId: String(m.menuId),
             menuName: m.menuName.trim(),
             menuType: m.menuType || '',
             boardType: m.boardType || '',
-          }));
+          });
+        }
+
+        // 디버그: 첫 번째 메뉴 아이템의 전체 필드 출력 (숨김 관련 필드 확인용)
+        if (menus.length > 0) {
+          const sampleKeys = Object.keys(menus[0]).join(', ');
+          console.log('SideMenuList 필드:', sampleKeys);
+        }
 
         return { boards };
       } catch (e) {
