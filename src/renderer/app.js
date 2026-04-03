@@ -431,6 +431,7 @@ function appendAccountRow(acc, hasCookies) {
     accounts = accounts.filter(a => a.id !== id);
     tr.remove();
     window.focus();
+    setTimeout(() => document.getElementById('new-account-id').focus(), 100);
   });
 }
 
@@ -535,6 +536,7 @@ function setupAddAccount() {
     document.getElementById('accounts-tbody').innerHTML = '';
     showToast('모든 계정이 삭제되었습니다.');
     window.focus();
+    setTimeout(() => document.getElementById('new-account-id').focus(), 100);
   });
 }
 
@@ -1217,8 +1219,53 @@ function setupManuscriptsTab() {
     }
   });
 
+  // 개별 원고 프리셋 저장 (JSON 파일로 내보내기)
+  document.getElementById('btn-preset-save-single').addEventListener('click', async () => {
+    if (selectedMsIndex < 0) return showToast('프리셋으로 저장할 원고를 선택하세요.');
+    collectMsData();
+
+    const ms = manuscripts[selectedMsIndex];
+    const title = (ms.post && ms.post.title) || '프리셋';
+    const snapshot = [JSON.parse(JSON.stringify(ms))];
+
+    const result = await window.api.exportPresetJson({ manuscripts: snapshot, title });
+    if (result.cancelled) return;
+    if (result.success) {
+      showToast('프리셋 저장 완료');
+    } else {
+      showToast('프리셋 저장 실패: ' + (result.error || '알 수 없는 오류'));
+    }
+    window.focus();
+  });
+
+  // 개별 원고 프리셋 불러오기 (JSON 파일에서 가져오기)
+  document.getElementById('btn-preset-load-single').addEventListener('click', loadPresetFromFile);
+
   // 프리셋
   setupPresets();
+}
+
+// 프리셋 JSON 파일에서 불러오기 (공용)
+async function loadPresetFromFile() {
+  const result = await window.api.importPresetJson();
+  if (result.cancelled) return;
+  if (!result.success) {
+    showToast('프리셋 불러오기 실패: ' + (result.error || '알 수 없는 오류'));
+    return;
+  }
+
+  if (selectedMsIndex >= 0) collectMsData();
+
+  const loaded = result.manuscripts;
+  loaded.forEach(ms => {
+    ms.id = 'ms-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  });
+  manuscripts = manuscripts.concat(loaded);
+
+  await saveAllManuscripts();
+  renderMsList();
+  showToast(`프리셋 원고 ${loaded.length}개 추가됨`);
+  window.focus();
 }
 
 function renderPresetSelect() {
@@ -1235,12 +1282,40 @@ function renderPresetSelect() {
     const accountsStr = accountIds.size > 0 ? Array.from(accountIds).join(', ') : '계정 없음';
     select.innerHTML += `<option value="${i}">${p.name} (${msCount}개 원고, ${accountsStr}, ${date})</option>`;
   });
+  select.innerHTML += '<option value="__browse__">찾아보기...</option>';
 }
 
 function setupPresets() {
   renderPresetSelect();
 
-  // 전체원고 내보내기
+  // 드롭다운 "찾아보기..." 선택 시 파일에서 불러오기
+  document.getElementById('preset-select').addEventListener('change', async (e) => {
+    if (e.target.value === '__browse__') {
+      e.target.value = '';
+      await loadPresetFromFile();
+    }
+  });
+
+  // 전체 프리셋 JSON 저장
+  document.getElementById('btn-preset-save-all-json').addEventListener('click', async () => {
+    if (manuscripts.length === 0) return showToast('저장할 원고가 없습니다.');
+    if (selectedMsIndex >= 0) collectMsData();
+
+    const snapshot = JSON.parse(JSON.stringify(manuscripts));
+    const today = new Date();
+    const title = `전체프리셋_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    const result = await window.api.exportPresetJson({ manuscripts: snapshot, title });
+    if (result.cancelled) return;
+    if (result.success) {
+      showToast(`전체 프리셋 저장 완료 (${snapshot.length}개 원고)`);
+    } else {
+      showToast('전체 프리셋 저장 실패: ' + (result.error || '알 수 없는 오류'));
+    }
+    window.focus();
+  });
+
+  // 전체원고 TXT
   document.getElementById('btn-ms-export-txt').addEventListener('click', async () => {
     if (selectedMsIndex >= 0) collectMsData();
     await saveAllManuscripts();

@@ -85,6 +85,8 @@ contextBridge.exposeInMainWorld('api', {
   importData: () => ipcRenderer.invoke('data:import'),
   exportManuscriptsTxt: () => ipcRenderer.invoke('data:export-manuscripts-txt'),
   exportManuscriptSingle: (data) => ipcRenderer.invoke('data:export-manuscript-single', data),
+  exportPresetJson: (data) => ipcRenderer.invoke('data:export-preset-json', data),
+  importPresetJson: () => ipcRenderer.invoke('data:import-preset-json'),
   deleteAllAccounts: () => ipcRenderer.invoke('accounts:delete-all'),
 
   // 유틸

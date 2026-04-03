@@ -742,6 +742,61 @@ function registerHandlers(mainWindow) {
     }
   });
 
+  // === 프리셋 JSON 내보내기 (단일/전체 공용) ===
+  ipcMain.handle('data:export-preset-json', async (_e, data) => {
+    try {
+      const { manuscripts, title } = data;
+      const safeTitle = (title || '프리셋').replace(/[\\/:*?"<>|]/g, '_');
+      const { filePath } = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: `${safeTitle}.json`,
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!filePath) return { success: false, cancelled: true };
+
+      const exportData = {
+        _type: 'NCafeAuto-Preset',
+        _version: app.getVersion(),
+        _exportedAt: new Date().toISOString(),
+        manuscripts,
+      };
+
+      const fs = require('fs');
+      fs.writeFileSync(filePath, JSON.stringify(exportData, null, 2), 'utf8');
+      return { success: true, filePath };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
+  // === 프리셋 JSON 불러오기 (단일/전체 공용) ===
+  ipcMain.handle('data:import-preset-json', async () => {
+    try {
+      const { filePaths } = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile'],
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!filePaths || filePaths.length === 0) return { success: false, cancelled: true };
+
+      const fs = require('fs');
+      const raw = fs.readFileSync(filePaths[0], 'utf8');
+      const data = JSON.parse(raw);
+
+      if (data._type !== 'NCafeAuto-Preset') {
+        return { success: false, error: '프리셋 파일이 아닙니다.' };
+      }
+
+      // manuscripts 배열 또는 구버전 manuscript 단일 객체 둘 다 지원
+      const ms = data.manuscripts || (data.manuscript ? [data.manuscript] : null);
+      if (!ms || ms.length === 0) {
+        return { success: false, error: '프리셋에 원고가 없습니다.' };
+      }
+
+      return { success: true, manuscripts: ms };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  });
+
   // === 유틸 ===
   ipcMain.handle('util:select-image', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {

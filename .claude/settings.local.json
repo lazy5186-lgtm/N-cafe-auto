@@ -7,7 +7,10 @@
       "Bash(winget install:*)",
       "Bash(export:*)",
       "Bash(where git:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(which cc:*)",
+      "Bash(echo:*)",
+      "Bash(which claude:*)"
     ]
   }
 }
