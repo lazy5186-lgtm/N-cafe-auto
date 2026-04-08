@@ -106,8 +106,6 @@ async function typeTextInEditor(page, text) {
     }, line);
 
     if (!inserted) {
-      // execCommand 실패 시 keyboard.type 폴백
-      console.log(`execCommand 실패 (줄 ${i}), keyboard.type 폴백`);
       await page.keyboard.type(line, { delay: 10 });
     }
 
@@ -230,18 +228,6 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   await delay(2000);
 
   // === 2. 에디터 포커스 + 작성 위치 설정 ===
-  // 커서 위치 확인
-  const cursorInfo = await page.evaluate(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return '선택 없음';
-    const range = sel.getRangeAt(0);
-    const node = range.startContainer;
-    const text = (node.textContent || '').trim();
-    const offset = range.startOffset;
-    return `"${text.substring(Math.max(0, offset - 10), offset)}|${text.substring(offset, offset + 10)}" (offset:${offset})`;
-  });
-  console.log('커서 위치:', cursorInfo);
-
   if (hasTemplate) {
     // 안내 문구 있음 → SmartEditor가 자동 focus + 커서를 안내 문구 끝에 배치
     // 클릭 없이 Enter만 치면 안내 문구 다음에 새 줄 생성
@@ -320,9 +306,9 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   await writeButton.click();
   console.log('등록 버튼 클릭 완료, 네비게이션 대기...');
 
-  // 네비게이션 대기 (최대 10초)
+  // 네비게이션 대기 (최대 30초)
   try {
-    await page.waitForNavigation({ timeout: 10000 });
+    await page.waitForNavigation({ timeout: 30000 });
   } catch (e) {
     console.log('네비게이션 타임아웃, 현재 URL 확인...');
   }
@@ -334,27 +320,25 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
 
   // 글쓰기 페이지에서 벗어났는지 확인
   if (currentUrl.includes('articles/write')) {
-    // 아직 글쓰기 페이지 → 등록 실패 가능성
     // 에러 메시지 확인
     const errorMsg = await page.evaluate(() => {
-      const errEl = document.querySelector('.error_message, .alert_text, [class*="error"]');
+      const errEl = document.querySelector('.error_message, .alert_text');
       return errEl ? errEl.textContent.trim() : null;
     });
-    if (errorMsg) {
+
+    // "등록 중" 이외의 에러 → 즉시 실패
+    if (errorMsg && !errorMsg.includes('등록 중')) {
       throw new Error(`게시글 등록 실패: ${errorMsg}`);
     }
 
-    // 한번 더 등록 시도 (팝업 확인 후)
-    console.log('등록이 완료되지 않음, 재시도...');
-    await delay(2000);
-    const retryButton = await page.$('.BaseButton--skinGreen');
-    if (retryButton) {
-      await retryButton.click();
-      try {
-        await page.waitForNavigation({ timeout: 30000 });
-      } catch (e) { /* ignore */ }
-      await delay(3000);
+    // "등록 중입니다" 로딩 상태 → 버튼 재클릭 없이 네비게이션만 대기
+    console.log('"등록 중" 상태 감지, 추가 대기 중... (최대 30초)');
+    try {
+      await page.waitForNavigation({ timeout: 30000 });
+    } catch (e) {
+      console.log('추가 네비게이션 대기 타임아웃');
     }
+    await delay(1000);
   }
 
   const finalUrl = page.url();
