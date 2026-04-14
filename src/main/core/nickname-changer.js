@@ -245,7 +245,7 @@ async function changeNickname(page, browser, cafeId, newNickname) {
           console.log(`"${finalNickname}" 중복 → 랜덤 닉네임으로 전환`);
           switchedToRandom = true;
         }
-        finalNickname = nickGen.generateNicknameWithNumber();
+        finalNickname = nickGen.generateNickname();
         console.log(`재시도: "${finalNickname}"`);
         continue;
       }
