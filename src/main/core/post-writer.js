@@ -255,10 +255,23 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
       await delay(500);
     } else if (segment.type === 'image') {
       const uploaded = await uploadImage(page, segment.filePath);
-      if (uploaded) {
-        await focusEditorByClick(page);
-        await delay(1000);
+
+      // 이미지 후 에디터 포커스 복구 (업로드 성공/실패 무관)
+      // SmartEditor가 이미지 선택 모드 → Escape로 해제
+      await page.keyboard.press('Escape');
+      await delay(500);
+
+      // 에디터 끝으로 커서 이동
+      await focusEditorByClick(page);
+      await delay(500);
+
+      // 이미지 뒤에 커서가 있는지 확인, 다음 세그먼트가 있으면 새 줄 생성
+      if (si < bodySegments.length - 1) {
+        await page.keyboard.press('Enter');
+        await delay(300);
       }
+
+      console.log(`이미지 ${uploaded ? '업로드 완료' : '업로드 실패'}, 에디터 포커스 복구 완료`);
     }
   }
 
