@@ -85,15 +85,43 @@ async function tick() {
   if (running) return; // 이미 스케줄 실행 중
   if (isManualRunning()) return; // 수동 실행 중이면 스킵
 
-  const { manuscripts } = store.loadGlobalManuscripts();
+  const data = store.loadGlobalManuscripts();
+  const manuscripts = data.manuscripts;
   if (!manuscripts) return;
 
   const now = Date.now();
+  // 폴링 간격(30초) + 약간의 여유 = 2분 이내만 "실행 가능"으로 간주
+  // 2분 이상 지난 예약은 PC/앱이 꺼져 있던 기간으로 보고 "만료(expired)" 처리 (실행 안 함)
+  const GRACE_MS = 2 * 60 * 1000;
+
+  // 지나간 예약 만료 처리 — 한 번에 저장
+  let changed = false;
+  for (const m of manuscripts) {
+    if (!m.scheduledAt) continue;
+    if (m.scheduledStatus && m.scheduledStatus !== 'pending') continue;
+    const t = new Date(m.scheduledAt).getTime();
+    if (isNaN(t)) continue;
+    if (t < now - GRACE_MS) {
+      m.scheduledStatus = 'expired';
+      m.lastError = '예약 시간 경과 (PC/앱이 꺼져있었거나 너무 늦게 감지)';
+      changed = true;
+      safeSend('scheduler:log', {
+        msg: `[예약] "${(m.post || {}).title || m.id}" 만료 — 예약 시간(${new Date(m.scheduledAt).toLocaleString()})이 지났습니다`,
+        scheduled: true,
+      });
+    }
+  }
+  if (changed) {
+    store.saveGlobalManuscripts(data);
+    onCompleteCb();
+  }
+
+  // 실행 대상: 유예 시간 이내 + 아직 pending 인 것만
   const due = manuscripts.filter(m => {
     if (!m.scheduledAt) return false;
     if (m.scheduledStatus && m.scheduledStatus !== 'pending') return false;
     const t = new Date(m.scheduledAt).getTime();
-    return !isNaN(t) && t <= now;
+    return !isNaN(t) && t <= now && t >= now - GRACE_MS;
   });
 
   if (due.length === 0) return;

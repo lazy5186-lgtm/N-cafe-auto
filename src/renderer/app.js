@@ -767,6 +767,7 @@ function renderMsList() {
         running: { text: `⏳ 실행 중`, color: '#64ffda' },
         executed: { text: `✅ 발행 완료`, color: '#66bb6a' },
         failed: { text: `❌ 실패`, color: '#ef5350' },
+        expired: { text: `⏱️ 만료 (미실행)`, color: '#ff7043' },
       }[status] || { text: timeStr, color: '#8892b0' };
       schedBadge = `<div style="font-size:10px; color:${badge.color}; margin-top:2px;">${badge.text}</div>`;
     }
@@ -907,10 +908,16 @@ function renderMsEditor() {
       running: '⏳ 실행 중',
       executed: '✅ 실행 완료' + (ms.lastRunAt ? ` (${new Date(ms.lastRunAt).toLocaleString()})` : ''),
       failed: `❌ 실행 실패: ${ms.lastError || ''}`,
+      expired: `⏱️ 예약 만료 (미실행): ${ms.lastError || 'PC/앱이 꺼져있었음'}`,
     }[status] || '';
     schedStatus.textContent = statusText;
-    schedStatus.style.color = status === 'failed' ? '#ef5350' : (status === 'executed' ? '#66bb6a' : '#ffa726');
-    schedResetBtn.style.display = (status === 'executed' || status === 'failed') ? 'inline-block' : 'none';
+    const statusColor = {
+      failed: '#ef5350',
+      expired: '#ff7043',
+      executed: '#66bb6a',
+    }[status] || '#ffa726';
+    schedStatus.style.color = statusColor;
+    schedResetBtn.style.display = (status === 'executed' || status === 'failed' || status === 'expired') ? 'inline-block' : 'none';
   }
 
   // 세그먼트
