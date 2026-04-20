@@ -386,6 +386,71 @@ input[type="date"].input {
   border-radius: 4px;
   padding: 10px;
   position: relative;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.segment-item.drag-over {
+  background: rgba(100, 255, 218, 0.12);
+  border-color: #64ffda;
+}
+
+.seg-image-path.drag-over,
+.ms-cmt-image-path.drag-over,
+.ms-reply-image-path.drag-over {
+  background: rgba(100, 255, 218, 0.15);
+  outline: 1px dashed #64ffda;
+  border-radius: 3px;
+}
+
+/* 이미지 세그먼트 — 파일 input 오버레이 방식 드롭존 */
+.seg-image-drop-area {
+  position: relative;
+  min-height: 56px;
+  border: 2px dashed #2a3a52;
+  border-radius: 6px;
+  background: rgba(13, 27, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  transition: background 0.15s, border-color 0.15s;
+  cursor: pointer;
+}
+
+.seg-image-drop-area:hover {
+  border-color: #3a4a62;
+  background: rgba(13, 27, 42, 0.7);
+}
+
+.segment-image-drop.drag-over .seg-image-drop-area {
+  border-color: #64ffda;
+  border-style: solid;
+  background: rgba(100, 255, 218, 0.1);
+}
+
+.seg-image-file-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  /* file input은 기본적으로 파일 드롭을 받음. 이 투명 레이어가 전체를 덮어서
+     클릭 시 파일 선택 다이얼로그 / 드롭 시 change 이벤트 동작 */
+}
+
+.seg-image-drop-hint {
+  color: #8892b0;
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+  word-break: break-all;
+  padding: 0 8px;
+}
+
+.segment-image-drop.drag-over .seg-image-drop-hint {
+  color: #64ffda;
+  font-weight: 600;
 }
 
 .segment-item .seg-type {

@@ -94,6 +94,27 @@
           </div>
         </div>
 
+        <!-- 댓글 딜레이 -->
+        <div class="section-card">
+          <div class="section-title">댓글/대댓글 사이 대기 시간</div>
+          <div class="form-row" style="margin-bottom:8px;">
+            <label class="toggle-switch">
+              <input type="checkbox" id="toggle-comment-delay">
+              <span class="toggle-slider"></span>
+              <span class="toggle-text">댓글 간 랜덤 딜레이 적용</span>
+            </label>
+          </div>
+          <div class="form-row comment-delay-inputs" style="gap:8px; align-items:center; display:none;">
+            <label style="font-size:12px; color:#8892b0;">최소</label>
+            <input type="number" id="comment-delay-min" class="input" min="1" max="3600" value="60" style="width:80px; padding:3px 6px; font-size:12px;">
+            <span style="font-size:12px; color:#8892b0;">초</span>
+            <label style="font-size:12px; color:#8892b0; margin-left:8px;">최대</label>
+            <input type="number" id="comment-delay-max" class="input" min="1" max="3600" value="100" style="width:80px; padding:3px 6px; font-size:12px;">
+            <span style="font-size:12px; color:#8892b0;">초</span>
+            <span style="font-size:11px; color:#5a6485; margin-left:12px;">각 댓글·대댓글 작성 사이에 min~max 중 랜덤 시간 대기</span>
+          </div>
+        </div>
+
         <!-- 랜덤 닉네임 단어 관리 -->
         <div class="section-card">
           <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
@@ -185,6 +206,9 @@
                 <label>게시 계정</label>
                 <div class="form-row" style="gap:8px; align-items:center;">
                   <select class="input" id="ms-account" style="width:200px;"></select>
+                  <label style="cursor:pointer; font-size:12px; white-space:nowrap;" title="실행 시 등록된 계정 중 랜덤 선택. 선택된 게시자는 댓글 랜덤에서 자동 제외됨">
+                    <input type="checkbox" id="ms-random-account"> 랜덤 계정
+                  </label>
                   <label style="cursor:pointer; font-size:12px; white-space:nowrap;">
                     <input type="checkbox" id="ms-random-nickname"> 랜덤 닉네임
                   </label>
@@ -218,7 +242,19 @@
                 <input type="text" class="input" id="ms-title" placeholder="게시글 제목" style="width:100%;">
               </div>
               <div class="form-group">
-                <label>본문 (텍스트/이미지 세그먼트)</label>
+                <label>예약 발행 <span style="font-weight:normal; color:#8892b0; font-size:11px;">(비워두면 수동 실행)</span></label>
+                <div class="form-row" style="gap:8px; align-items:center;">
+                  <input type="datetime-local" class="input" id="ms-scheduled-at" style="width:220px;">
+                  <button type="button" class="btn btn-sm btn-secondary" id="btn-ms-scheduled-clear">해제</button>
+                  <span id="ms-scheduled-status" style="font-size:12px; color:#8892b0;"></span>
+                  <button type="button" class="btn btn-sm btn-primary" id="btn-ms-scheduled-reset" style="display:none; margin-left:auto;">상태 리셋</button>
+                </div>
+                <div style="margin-top:4px; font-size:11px; color:#5a6485;">
+                  예약 시간에 앱이 실행 중이어야 작동합니다. 예약된 원고는 활성화 체크와 무관하게 실행됩니다.
+                </div>
+              </div>
+              <div class="form-group">
+                <label>본문 (텍스트/이미지 세그먼트) <span style="font-weight:normal; color:#8892b0; font-size:11px;">— "+ 이미지" 버튼으로 박스 생성 후 그 안에 이미지 파일 드래그</span></label>
                 <div class="ms-segments segments-container" id="ms-segments"></div>
                 <div class="form-row" style="margin-top:8px;">
                   <button class="btn btn-sm btn-secondary" id="btn-add-text-seg">+ 텍스트</button>

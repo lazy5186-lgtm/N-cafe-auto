@@ -122,6 +122,7 @@ function loadSettings() {
   return readJSON(getSettingsPath(), {
     ipChange: { enabled: false, interfaceName: '' },
     nicknameChange: { enabled: false },
+    commentDelay: { enabled: true, minSeconds: 60, maxSeconds: 100 },
   });
 }
 

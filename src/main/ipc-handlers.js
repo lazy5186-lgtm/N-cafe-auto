@@ -10,6 +10,7 @@ const postDeleter = require('./core/post-deleter');
 const commentWriter = require('./core/comment-writer');
 const postLiker = require('./core/post-liker');
 const Executor = require('./engine/executor');
+const scheduler = require('./engine/scheduler');
 const nicknameGenerator = require('./core/nickname-generator');
 
 let globalExecutor = null;
@@ -273,6 +274,9 @@ function registerHandlers(mainWindow) {
     if (globalExecutor && globalExecutor.state === 'running') {
       return { success: false, error: '이미 실행 중입니다' };
     }
+    if (scheduler.isRunning()) {
+      return { success: false, error: '예약 실행이 진행 중입니다. 잠시 후 다시 시도하세요.' };
+    }
 
     const accounts = store.loadAccounts();
     const settings = store.loadSettings();
@@ -308,6 +312,40 @@ function registerHandlers(mainWindow) {
   ipcMain.handle('execution:stop', () => {
     if (globalExecutor) { globalExecutor.stop(); globalExecutor = null; return { success: true }; }
     return { success: false };
+  });
+
+  // === 예약 발행 스케줄러 ===
+  scheduler.start({
+    safeSend,
+    isManualRunning: () => !!(globalExecutor && globalExecutor.state === 'running'),
+    onComplete: () => {
+      // 예약 실행 완료 시 renderer로 원고 목록 재로드 신호
+      safeSend('scheduler:manuscripts-updated', {});
+    },
+  });
+
+  ipcMain.handle('scheduler:list', () => scheduler.listScheduled());
+
+  ipcMain.handle('scheduler:set', (_e, manuscriptId, scheduledAt) => {
+    const ok = scheduler.setScheduled(manuscriptId, scheduledAt);
+    return { success: ok };
+  });
+
+  ipcMain.handle('scheduler:reset', (_e, manuscriptId) => {
+    const ok = scheduler.resetStatus(manuscriptId);
+    return { success: ok };
+  });
+
+  ipcMain.handle('scheduler:run-now', async (_e, manuscriptId) => {
+    // 수동 실행 중이면 거부
+    if (globalExecutor && globalExecutor.state === 'running') {
+      return { success: false, error: '현재 다른 실행이 진행 중입니다' };
+    }
+    const { manuscripts } = store.loadGlobalManuscripts();
+    const ms = (manuscripts || []).find(m => m.id === manuscriptId);
+    if (!ms) return { success: false, error: '원고를 찾을 수 없습니다' };
+    await scheduler.runSingle(ms);
+    return { success: true };
   });
 
   // === 결과 ===
@@ -826,6 +864,7 @@ function cleanup() {
     globalExecutor.stop();
     globalExecutor = null;
   }
+  scheduler.stop();
 }
 
 module.exports = { registerHandlers, cleanup };

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   // 계정
@@ -43,6 +43,27 @@ contextBridge.exposeInMainWorld('api', {
   executionPause: () => ipcRenderer.invoke('execution:pause'),
   executionResume: () => ipcRenderer.invoke('execution:resume'),
   executionStop: () => ipcRenderer.invoke('execution:stop'),
+
+  // 예약 발행 스케줄러
+  schedulerList: () => ipcRenderer.invoke('scheduler:list'),
+  schedulerSet: (manuscriptId, scheduledAt) => ipcRenderer.invoke('scheduler:set', manuscriptId, scheduledAt),
+  schedulerReset: (manuscriptId) => ipcRenderer.invoke('scheduler:reset', manuscriptId),
+  schedulerRunNow: (manuscriptId) => ipcRenderer.invoke('scheduler:run-now', manuscriptId),
+  onSchedulerLog: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('scheduler:log', listener);
+    return () => ipcRenderer.removeListener('scheduler:log', listener);
+  },
+  onSchedulerProgress: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('scheduler:progress', listener);
+    return () => ipcRenderer.removeListener('scheduler:progress', listener);
+  },
+  onSchedulerUpdated: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('scheduler:manuscripts-updated', listener);
+    return () => ipcRenderer.removeListener('scheduler:manuscripts-updated', listener);
+  },
 
   // 결과
   loadResultsList: () => ipcRenderer.invoke('results:load-list'),
@@ -93,6 +114,10 @@ contextBridge.exposeInMainWorld('api', {
   selectImage: () => ipcRenderer.invoke('util:select-image'),
   openExternal: (url) => ipcRenderer.invoke('util:open-external', url),
   getChromePath: () => ipcRenderer.invoke('util:get-chrome-path'),
+  // 드래그앤드롭 된 File 객체의 로컬 경로 추출 (Electron 32+ 대응)
+  getFilePath: (file) => {
+    try { return webUtils.getPathForFile(file) || ''; } catch (e) { return ''; }
+  },
 
   // 이벤트 수신
   onExecutionLog: (callback) => {

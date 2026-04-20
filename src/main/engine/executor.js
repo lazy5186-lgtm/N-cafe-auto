@@ -19,9 +19,16 @@ class Executor extends EventEmitter {
     this._currentBrowser = null;
   }
 
-  /** 60~100초 랜덤 대기 (작업 간 텀) */
-  async randomDelay() {
-    const seconds = Math.floor(Math.random() * 41) + 60; // 60~100
+  /** 댓글 간 랜덤 대기. settings.commentDelay 기반 (기본 60~100초). */
+  async randomDelay(commentDelayCfg) {
+    const cfg = commentDelayCfg || { enabled: true, minSeconds: 60, maxSeconds: 100 };
+    if (!cfg.enabled) {
+      this.log('댓글 딜레이 비활성화 — 즉시 진행');
+      return;
+    }
+    const min = Math.max(1, Math.min(cfg.minSeconds || 60, cfg.maxSeconds || 100));
+    const max = Math.max(min, cfg.maxSeconds || 100);
+    const seconds = Math.floor(Math.random() * (max - min + 1)) + min;
     this.log(`다음 작업까지 ${seconds}초 대기...`);
     for (let elapsed = 0; elapsed < seconds; elapsed += 10) {
       if (this.state === 'stopped') return;
@@ -124,7 +131,14 @@ class Executor extends EventEmitter {
         const canCont = await this.waitIfPaused();
         if (!canCont) break;
 
-        const posterAccId = ms.accountId;
+        // 게시자 결정 — ms.randomAccount=true면 등록된 계정 중 랜덤 선택
+        // 확정된 posterAccId는 이후 댓글 랜덤 풀에서 자동으로 제외됨 (pickAccountId 참고)
+        let posterAccId = ms.accountId;
+        if (ms.randomAccount && allAccounts.length > 0) {
+          const picked = allAccounts[Math.floor(Math.random() * allAccounts.length)];
+          posterAccId = picked.id;
+          this.log(`게시자 랜덤 선택: ${posterAccId} (전체 ${allAccounts.length}개 중)`);
+        }
         const posterAcc = allAccounts.find(a => a.id === posterAccId);
 
         if (!posterAcc) {
@@ -261,6 +275,21 @@ class Executor extends EventEmitter {
             // 댓글 작업 중 실패 시 원고 전체 댓글 중단 플래그
             let commentAborted = false;
 
+            // 랜덤 계정 선택 헬퍼
+            // - randomAccount=true면 등록된 계정 중 게시자를 제외하고 랜덤 선택
+            //   (게시자가 자기 글에 댓글 달면 부자연스러우므로)
+            // - 제외 후 선택 가능한 계정이 없으면(게시자만 등록된 경우) 게시자 사용
+            const pickAccountId = (item) => {
+              if (item.randomAccount && allAccounts.length > 0) {
+                const pool = allAccounts.filter(a => a.id !== posterAccId);
+                const candidates = pool.length > 0 ? pool : allAccounts;
+                const picked = candidates[Math.floor(Math.random() * candidates.length)];
+                this.log(`랜덤 계정 선택: ${picked.id} (게시자 ${posterAccId} 제외, 후보 ${candidates.length}개)`);
+                return picked.id;
+              }
+              return item.accountId || posterAccId;
+            };
+
             // 대댓글 재귀 처리
             const processReplies = async (replies, parentText, parentResult) => {
               for (const reply of replies) {
@@ -268,7 +297,7 @@ class Executor extends EventEmitter {
                 const canCont = await this.waitIfPaused();
                 if (!canCont) break;
 
-                const replyAccId = reply.accountId || posterAccId;
+                const replyAccId = pickAccountId(reply);
                 const replyResult = { accountId: replyAccId, status: 'pending', replies: [] };
 
                 let replyLoginOk = false;
@@ -301,7 +330,7 @@ class Executor extends EventEmitter {
                   break;
                 }
 
-                await this.randomDelay();
+                await this.randomDelay(settings.commentDelay);
 
                 if (reply.replies && reply.replies.length > 0) {
                   this.log(`하위 대댓글 ${reply.replies.length}개 처리 시작 (parentText: "${(reply.text || '').substring(0, 20)}")`);
@@ -315,7 +344,7 @@ class Executor extends EventEmitter {
             // 댓글 순차 처리
             for (const cmt of ms.comments) {
               if (this.state === 'stopped' || commentAborted) break;
-              const cmtAccId = cmt.accountId || posterAccId;
+              const cmtAccId = pickAccountId(cmt);
               const cmtResult = { accountId: cmtAccId, status: 'pending', replies: [] };
 
               const cmtLoginOk = await switchAccount(cmtAccId, cmt.randomNickname, cmt.nickname);

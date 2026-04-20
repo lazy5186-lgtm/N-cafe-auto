@@ -570,6 +570,22 @@ function setupSettingsToggles() {
     ipSettings.style.display = ipToggle.checked ? 'block' : 'none';
   });
 
+  // 댓글 딜레이 설정
+  const cmtDelayCfg = settings.commentDelay || { enabled: true, minSeconds: 60, maxSeconds: 100 };
+  const cmtDelayToggle = document.getElementById('toggle-comment-delay');
+  const cmtDelayInputs = document.querySelector('.comment-delay-inputs');
+  const cmtDelayMin = document.getElementById('comment-delay-min');
+  const cmtDelayMax = document.getElementById('comment-delay-max');
+  if (cmtDelayToggle) {
+    cmtDelayToggle.checked = cmtDelayCfg.enabled !== false;
+    cmtDelayMin.value = cmtDelayCfg.minSeconds || 60;
+    cmtDelayMax.value = cmtDelayCfg.maxSeconds || 100;
+    cmtDelayInputs.style.display = cmtDelayToggle.checked ? 'flex' : 'none';
+    cmtDelayToggle.addEventListener('change', () => {
+      cmtDelayInputs.style.display = cmtDelayToggle.checked ? 'flex' : 'none';
+    });
+  }
+
   // 인터페이스 확인
   document.getElementById('btn-check-iface').addEventListener('click', async () => {
     const statusEl = document.getElementById('adb-status');
@@ -626,6 +642,11 @@ function setupSettingsToggles() {
         enabled: ipToggle.checked,
         method: 'adb',
         adb: {},
+      },
+      commentDelay: {
+        enabled: cmtDelayToggle ? cmtDelayToggle.checked : true,
+        minSeconds: Math.max(1, parseInt(cmtDelayMin ? cmtDelayMin.value : '60', 10) || 60),
+        maxSeconds: Math.max(1, parseInt(cmtDelayMax ? cmtDelayMax.value : '100', 10) || 100),
       },
       shortcuts: getShortcutSaveData(),
     };
@@ -717,11 +738,24 @@ function renderMsList() {
   manuscripts.forEach((ms, i) => {
     const div = document.createElement('div');
     div.className = 'ms-list-item' + (i === selectedMsIndex ? ' active' : '') + (!ms.enabled ? ' disabled' : '');
+    let schedBadge = '';
+    if (ms.scheduledAt) {
+      const status = ms.scheduledStatus || 'pending';
+      const timeStr = new Date(ms.scheduledAt).toLocaleString();
+      const badge = {
+        pending: { text: `⏰ ${timeStr}`, color: '#ffa726' },
+        running: { text: `⏳ 실행 중`, color: '#64ffda' },
+        executed: { text: `✅ 발행 완료`, color: '#66bb6a' },
+        failed: { text: `❌ 실패`, color: '#ef5350' },
+      }[status] || { text: timeStr, color: '#8892b0' };
+      schedBadge = `<div style="font-size:10px; color:${badge.color}; margin-top:2px;">${badge.text}</div>`;
+    }
     div.innerHTML = `
       <div style="display:flex; align-items:center; gap:6px;">
         <div style="flex:1; min-width:0;">
           <div class="ms-item-title">${(ms.post && ms.post.title) || '(제목 없음)'}</div>
           <div class="ms-item-sub">${ms.accountId || '계정 미선택'} \u00B7 ${ms.boardName || '게시판 미선택'}</div>
+          ${schedBadge}
         </div>
         <button class="btn-ms-remove" title="삭제" style="background:none; border:none; color:#ef5350; font-size:16px; cursor:pointer; padding:2px 6px; flex-shrink:0;">&minus;</button>
       </div>
@@ -771,6 +805,18 @@ function renderMsEditor() {
   }
   applySelectColor(msAccount);
 
+  // 게시자 랜덤 계정
+  const msRandomAcct = document.getElementById('ms-random-account');
+  if (msRandomAcct) {
+    msRandomAcct.checked = !!ms.randomAccount;
+    msAccount.disabled = msRandomAcct.checked;
+    msAccount.style.opacity = msRandomAcct.checked ? '0.4' : '1';
+    msRandomAcct.onchange = () => {
+      msAccount.disabled = msRandomAcct.checked;
+      msAccount.style.opacity = msRandomAcct.checked ? '0.4' : '1';
+    };
+  }
+
   // 카페
   document.getElementById('ms-cafe-name').value = ms.cafeName || '';
   document.getElementById('ms-cafe-id').value = ms.cafeId || '';
@@ -815,6 +861,36 @@ function renderMsEditor() {
   const post = ms.post || {};
   document.getElementById('ms-title').value = post.title || '';
 
+  // 예약 발행
+  const schedInput = document.getElementById('ms-scheduled-at');
+  const schedStatus = document.getElementById('ms-scheduled-status');
+  const schedResetBtn = document.getElementById('btn-ms-scheduled-reset');
+  if (schedInput) {
+    // ISO → datetime-local 값 변환 (로컬 타임존 기준)
+    if (ms.scheduledAt) {
+      const d = new Date(ms.scheduledAt);
+      if (!isNaN(d.getTime())) {
+        const pad = (n) => String(n).padStart(2, '0');
+        schedInput.value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      } else {
+        schedInput.value = '';
+      }
+    } else {
+      schedInput.value = '';
+    }
+
+    const status = ms.scheduledStatus || 'pending';
+    const statusText = {
+      pending: ms.scheduledAt ? '⏰ 예약 대기' : '',
+      running: '⏳ 실행 중',
+      executed: '✅ 실행 완료' + (ms.lastRunAt ? ` (${new Date(ms.lastRunAt).toLocaleString()})` : ''),
+      failed: `❌ 실행 실패: ${ms.lastError || ''}`,
+    }[status] || '';
+    schedStatus.textContent = statusText;
+    schedStatus.style.color = status === 'failed' ? '#ef5350' : (status === 'executed' ? '#66bb6a' : '#ffa726');
+    schedResetBtn.style.display = (status === 'executed' || status === 'failed') ? 'inline-block' : 'none';
+  }
+
   // 세그먼트
   const segContainer = document.getElementById('ms-segments');
   segContainer.innerHTML = '';
@@ -840,6 +916,8 @@ function collectMsData() {
 
   ms.enabled = document.getElementById('ms-enabled').checked;
   ms.accountId = document.getElementById('ms-account').value;
+  const msRandomAcctEl = document.getElementById('ms-random-account');
+  ms.randomAccount = msRandomAcctEl ? msRandomAcctEl.checked : false;
 
   // 카페 드롭다운에서 값 추출
   const cafeSelectVal = document.getElementById('ms-cafe-select').value;
@@ -863,6 +941,27 @@ function collectMsData() {
   if (!ms.post) ms.post = {};
   ms.post.title = document.getElementById('ms-title').value.trim();
 
+  // 예약 발행 — datetime-local은 로컬 타임존. ISO로 저장
+  const schedInputVal = document.getElementById('ms-scheduled-at').value;
+  if (schedInputVal) {
+    const d = new Date(schedInputVal); // datetime-local은 로컬 타임으로 파싱됨
+    if (!isNaN(d.getTime())) {
+      const prevAt = ms.scheduledAt;
+      ms.scheduledAt = d.toISOString();
+      // 예약 시간이 변경되었으면 상태를 pending으로 리셋
+      if (prevAt !== ms.scheduledAt) {
+        ms.scheduledStatus = 'pending';
+        ms.lastError = null;
+      } else if (!ms.scheduledStatus) {
+        ms.scheduledStatus = 'pending';
+      }
+    }
+  } else {
+    delete ms.scheduledAt;
+    delete ms.scheduledStatus;
+    delete ms.lastError;
+  }
+
   // 세그먼트
   ms.post.bodySegments = [];
   document.querySelectorAll('#ms-segments .segment-item').forEach(item => {
@@ -881,6 +980,7 @@ function collectMsData() {
     const replies = [];
     containerEl.querySelectorAll(':scope > .ms-reply-item').forEach(replyEl => {
       const rAcct = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-account');
+      const rRandAcct = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-random-acct');
       const rNick = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-random-nick');
       const rCustomNick = replyEl.querySelector(':scope > .ms-reply-row .ms-reply-custom-nick');
       const rText = replyEl.querySelector(':scope > .ms-reply-text');
@@ -888,6 +988,7 @@ function collectMsData() {
       const subList = replyEl.querySelector(':scope > .ms-reply-sub-list');
       replies.push({
         accountId: rAcct ? rAcct.value : '',
+        randomAccount: rRandAcct ? rRandAcct.checked : false,
         randomNickname: rNick ? rNick.checked : false,
         nickname: rCustomNick ? rCustomNick.value.trim() : '',
         text: rText ? rText.value : '',
@@ -901,6 +1002,7 @@ function collectMsData() {
   ms.comments = [];
   document.querySelectorAll('#ms-comments-list > .ms-comment-item').forEach(item => {
     const accountSelect = item.querySelector('.ms-cmt-account');
+    const randAcctCheck = item.querySelector('.ms-cmt-random-acct');
     const nickCheck = item.querySelector('.ms-cmt-random-nick');
     const nickCustom = item.querySelector('.ms-cmt-custom-nick');
     const textInput = item.querySelector('.ms-cmt-text');
@@ -908,6 +1010,7 @@ function collectMsData() {
     const replyList = item.querySelector('.ms-reply-list');
     ms.comments.push({
       accountId: accountSelect ? accountSelect.value : '',
+      randomAccount: randAcctCheck ? randAcctCheck.checked : false,
       randomNickname: nickCheck ? nickCheck.checked : false,
       nickname: nickCustom ? nickCustom.value.trim() : '',
       text: textInput ? textInput.value : '',
@@ -1176,6 +1279,34 @@ function setupManuscriptsTab() {
     if (selectedMsIndex < 0) return;
     MsHelpers.renderImageSegment(document.getElementById('ms-segments'), '');
   });
+
+  // 드래그앤드롭은 "+ 이미지" 버튼으로 생성된 이미지 세그먼트 박스 위에서만 동작
+  // (컨테이너 빈 영역에 드래그해서 자동 생성되는 기능은 사용자 요청으로 제거)
+
+  // 예약 발행 — 해제 버튼
+  const schedClearBtn = document.getElementById('btn-ms-scheduled-clear');
+  if (schedClearBtn) {
+    schedClearBtn.addEventListener('click', () => {
+      document.getElementById('ms-scheduled-at').value = '';
+      document.getElementById('ms-scheduled-status').textContent = '';
+      document.getElementById('btn-ms-scheduled-reset').style.display = 'none';
+    });
+  }
+
+  // 예약 발행 — 상태 리셋 (실행 완료/실패 원고를 다시 pending으로)
+  const schedResetBtn = document.getElementById('btn-ms-scheduled-reset');
+  if (schedResetBtn) {
+    schedResetBtn.addEventListener('click', async () => {
+      if (selectedMsIndex < 0) return;
+      const ms = manuscripts[selectedMsIndex];
+      if (!ms.id) return;
+      await window.api.schedulerReset(ms.id);
+      ms.scheduledStatus = 'pending';
+      ms.lastError = null;
+      showToast('예약 상태가 리셋되었습니다.');
+      renderMsEditor();
+    });
+  }
 
   // 댓글 추가
   document.getElementById('btn-add-ms-comment').addEventListener('click', () => {
@@ -1548,6 +1679,25 @@ function setupEventListeners() {
     document.getElementById('exec-progress-bar').style.width = '100%';
     loadResultsList();
   });
+
+  // 스케줄러 이벤트
+  if (window.api.onSchedulerLog) {
+    window.api.onSchedulerLog((data) => {
+      appendLog(`[스케줄] ${data.msg || ''}`);
+    });
+  }
+  if (window.api.onSchedulerUpdated) {
+    window.api.onSchedulerUpdated(async () => {
+      // 스케줄러가 원고 실행을 마쳤으므로 원고 목록을 다시 로드하여 상태 반영
+      const data = await window.api.loadManuscripts();
+      manuscripts = data.manuscripts || [];
+      renderMsList();
+      if (selectedMsIndex >= 0 && selectedMsIndex < manuscripts.length) {
+        renderMsEditor();
+      }
+      loadResultsList();
+    });
+  }
 }
 
 // =============================================

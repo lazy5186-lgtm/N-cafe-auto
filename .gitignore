@@ -1,9 +1,7 @@
 node_modules/
-data/cookies/
-data/logs/
-data/accounts.json
-data/delete-schedule.json
-data/crawl-cache/
+/data/
 dist/
 dist-src/
 *.log
+# 사용자 테스트 파일
+/2026-*.txt

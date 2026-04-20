@@ -69,17 +69,106 @@ async function uploadImage(page, filePath) {
 
 async function focusEditorByClick(page) {
   try {
-    const allPs = await page.$$('.se-text-paragraph');
-    if (allPs.length > 0) {
-      const last = allPs[allPs.length - 1];
-      await last.evaluate(el => el.scrollIntoView({ block: 'center' }));
-      await last.click();
+    // 타겟 단락 결정: 마지막 이미지보다 뒤에 있는 텍스트 컴포넌트의 마지막 단락을 우선 선택
+    // (이미지 여러 개 섞인 원고에서도 항상 "가장 최근 이미지 이후"에 커서를 놓도록)
+    const targetPicked = await page.evaluate(() => {
+      // 이전 실행의 마커 잔존 방지
+      document.querySelectorAll('[data-__focus_target="1"]').forEach(el => el.removeAttribute('data-__focus_target'));
+
+      const textComps = Array.from(document.querySelectorAll('.se-component.se-text'));
+      if (textComps.length === 0) return { ok: false, reason: 'no-text-component' };
+
+      const imageComps = Array.from(document.querySelectorAll('.se-component.se-image'));
+      let targetComp = textComps[textComps.length - 1];
+
+      if (imageComps.length > 0) {
+        const lastImg = imageComps[imageComps.length - 1];
+        // 마지막 이미지보다 뒤에 오는 첫 텍스트 컴포넌트 선택 (없으면 마지막 텍스트 컴포넌트 사용)
+        const afterImageTexts = textComps.filter(tc => {
+          const pos = lastImg.compareDocumentPosition(tc);
+          return !!(pos & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+        if (afterImageTexts.length > 0) {
+          targetComp = afterImageTexts[0];
+        }
+      }
+
+      const paras = targetComp.querySelectorAll('.se-text-paragraph');
+      if (paras.length === 0) return { ok: false, reason: 'no-paragraph-in-target' };
+      const lastPara = paras[paras.length - 1];
+      lastPara.setAttribute('data-__focus_target', '1');
+      return {
+        ok: true,
+        compClass: targetComp.className,
+        text: (lastPara.textContent || '').trim().slice(0, 20),
+        totalTextComps: textComps.length,
+        totalImgComps: imageComps.length,
+      };
+    });
+
+    console.log(`[focusEditorByClick] 타겟 선정:`, JSON.stringify(targetPicked));
+    if (!targetPicked.ok) {
+      await page.click('.se-component-content').catch(() => {});
       await delay(300);
-      return true;
+      return false;
     }
-    await page.click('.se-component-content');
+
+    const last = await page.$('[data-__focus_target="1"]');
+    if (!last) {
+      console.log('[focusEditorByClick] 타겟 마커 요소를 찾을 수 없음');
+      return false;
+    }
+
+    // SmartEditor 부유 툴바/오버레이가 클릭을 가로채는 문제 회피
+    await page.evaluate(() => {
+      const overlays = document.querySelectorAll(
+        '.se-floating-material-menu-line, .se-side-menu-container, .se-toolbar-floating, ' +
+        '.se-drop-indicator, [class*="se-floating"]'
+      );
+      overlays.forEach(el => {
+        el.dataset.__prevPe = el.style.pointerEvents || '';
+        el.style.pointerEvents = 'none';
+      });
+    });
+
+    await last.evaluate(el => el.scrollIntoView({ block: 'center' }));
+    await last.click();
     await delay(300);
-    return true;
+
+    // 오버레이 pointer-events 원복
+    await page.evaluate(() => {
+      const overlays = document.querySelectorAll(
+        '.se-floating-material-menu-line, .se-side-menu-container, .se-toolbar-floating, ' +
+        '.se-drop-indicator, [class*="se-floating"]'
+      );
+      overlays.forEach(el => {
+        el.style.pointerEvents = el.dataset.__prevPe || '';
+        delete el.dataset.__prevPe;
+      });
+      // 타겟 마커 제거
+      document.querySelectorAll('[data-__focus_target="1"]').forEach(el => el.removeAttribute('data-__focus_target'));
+    });
+
+    // 클릭 직후 커서 위치 검증
+    const afterClick = await page.evaluate(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return { ok: false, reason: 'no-selection' };
+      const n = sel.focusNode;
+      const el = n && (n.nodeType === 1 ? n : n.parentElement);
+      if (!el) return { ok: false, reason: 'no-focus-element' };
+      const comp = el.closest('.se-component');
+      const ae = document.activeElement;
+      return {
+        ok: true,
+        focusComp: comp ? comp.className : '(none)',
+        focusElTag: el.tagName,
+        focusElClass: (el.className || '').slice(0, 60),
+        activeElement: ae ? (ae.tagName + '.' + (ae.className || '')).slice(0, 60) : null,
+        inSeText: !!el.closest('.se-component.se-text'),
+      };
+    });
+    console.log('[focusEditorByClick] 클릭 후:', JSON.stringify(afterClick));
+    return afterClick.ok && afterClick.inSeText;
   } catch (e) {
     console.log('에디터 focus 실패:', e.message);
     return false;
@@ -91,6 +180,25 @@ async function typeTextInEditor(page, text) {
   const lines = cleanContent.split('\n');
   let typedTotal = 0;
 
+  // 타이핑 시작 직전 커서/포커스 상태 덤프
+  const preState = await page.evaluate(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return { selection: '(empty)' };
+    const n = sel.focusNode;
+    const el = n && (n.nodeType === 1 ? n : n.parentElement);
+    if (!el) return { selection: '(no-element)' };
+    const comp = el.closest('.se-component');
+    const ae = document.activeElement;
+    return {
+      compClass: comp ? comp.className : '(none)',
+      elTag: el.tagName,
+      elClass: (el.className || '').slice(0, 60),
+      inSeNode: !!el.closest('.__se-node') || (el.tagName === 'SPAN' && el.classList.contains('__se-node')),
+      activeElement: ae ? (ae.tagName + '.' + (ae.className || '')).slice(0, 60) : null,
+    };
+  });
+  console.log(`[typeTextInEditor] 시작 전 커서:`, JSON.stringify(preState));
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
@@ -101,11 +209,63 @@ async function typeTextInEditor(page, text) {
     }
 
     // execCommand로 한 줄 삽입 (줄 단위 개별 evaluate)
-    const inserted = await page.evaluate((t) => {
-      return document.execCommand('insertText', false, t);
+    const result = await page.evaluate((t) => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return { ok: false, reason: 'no-selection' };
+      const node = sel.focusNode;
+      if (!node) return { ok: false, reason: 'no-focus-node' };
+      const ownerEl = node.nodeType === 1 ? node : node.parentElement;
+      if (!ownerEl) return { ok: false, reason: 'no-owner-el' };
+      // isContentEditable 프로퍼티는 상속된 contenteditable까지 반영
+      const isEditable = ownerEl.isContentEditable || document.designMode === 'on';
+      if (!isEditable) return { ok: false, reason: 'not-editable' };
+      if (ownerEl.closest('.se-image')) return { ok: false, reason: 'in-image-component' };
+      // 가장 가까운 contenteditable 조상 (길이 비교용). 없으면 ownerEl 자체 사용
+      let editable = ownerEl;
+      while (editable && editable.contentEditable !== 'true' && editable !== document.body) {
+        editable = editable.parentElement;
+      }
+      if (!editable) editable = ownerEl;
+      const beforeLen = (editable.textContent || '').length;
+      const cmdOk = document.execCommand('insertText', false, t);
+      const afterLen = (editable.textContent || '').length;
+      if (!cmdOk) return { ok: false, reason: 'exec-returned-false' };
+      if (afterLen <= beforeLen) return { ok: false, reason: 'no-length-change', before: beforeLen, after: afterLen };
+      return { ok: true, before: beforeLen, after: afterLen };
     }, line);
+    const inserted = result.ok;
+    if (!inserted) {
+      console.log(`[typeTextInEditor] execCommand 실패 (line="${line.slice(0, 20)}"): ${result.reason}`, result);
+    }
 
     if (!inserted) {
+      // execCommand 실패 시 포커스 재설정 후 keyboard.type 폴백
+      await page.evaluate(() => {
+        // 마지막 이미지보다 뒤에 있는 텍스트 컴포넌트 우선 (여러 이미지 섞인 원고 대응)
+        const textComps = Array.from(document.querySelectorAll('.se-component.se-text'));
+        if (textComps.length === 0) return;
+        const imageComps = Array.from(document.querySelectorAll('.se-component.se-image'));
+        let targetComp = textComps[textComps.length - 1];
+        if (imageComps.length > 0) {
+          const lastImg = imageComps[imageComps.length - 1];
+          const afterImageTexts = textComps.filter(tc =>
+            !!(lastImg.compareDocumentPosition(tc) & Node.DOCUMENT_POSITION_FOLLOWING)
+          );
+          if (afterImageTexts.length > 0) targetComp = afterImageTexts[0];
+        }
+        const paras = targetComp.querySelectorAll('.se-text-paragraph');
+        if (paras.length === 0) return;
+        const lastP = paras[paras.length - 1];
+        // SmartEditor는 .__se-node span 안쪽에 커서가 있어야 텍스트 입력을 받음
+        const innerNode = lastP.querySelector('.__se-node') || lastP;
+        if (innerNode.focus) innerNode.focus();
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(innerNode);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      });
       await page.keyboard.type(line, { delay: 10 });
     }
 
@@ -144,54 +304,51 @@ async function selectBoard(page, menuId, boardName) {
     const boardItems = await page.$$('.option_list .item');
     let boardFound = false;
 
-    // 1차: 이름 매칭
-    if (boardName) {
+    // 각 item의 (dataValue, optionText) 쌍을 수집 (매번 evaluate 호출 줄이기 + 로깅용)
+    const itemsInfo = [];
+    for (let i = 0; i < boardItems.length; i++) {
+      const info = await boardItems[i].evaluate(el => ({
+        dataValue: el.getAttribute('data-value') || el.querySelector('[data-value]')?.getAttribute('data-value') || '',
+        text: (el.querySelector('.option_text')?.textContent || '').trim(),
+      }));
+      itemsInfo.push(info);
+    }
+
+    // 1차: data-value (menuId) 매칭 — 가장 정확, 이름 중복된 게시판 구분 가능
+    if (menuId) {
+      for (let i = 0; i < boardItems.length; i++) {
+        if (String(itemsInfo[i].dataValue) === String(menuId)) {
+          await boardItems[i].click();
+          console.log(`게시판 menuId 매칭 선택: "${itemsInfo[i].text}" (menuId=${itemsInfo[i].dataValue})`);
+          boardFound = true;
+          break;
+        }
+      }
+    }
+
+    // 2차: 이름 매칭 (menuId 못 찾은 경우만) — 같은 이름 다수이면 첫 번째 선택됨
+    if (!boardFound && boardName) {
       const normalizedTarget = boardName.replace(/\s+/g, '').toLowerCase();
-      for (let i = 0; i < boardItems.length; i++) {
-        const optionText = await boardItems[i].$eval('.option_text', el => el.textContent.trim()).catch(() => '');
-        const normalizedOption = optionText.replace(/\s+/g, '').toLowerCase();
-        if (normalizedOption === normalizedTarget) {
-          await boardItems[i].click();
-          console.log(`게시판 이름 매칭 선택: "${optionText}"`);
-          boardFound = true;
-          break;
-        }
+      const matches = itemsInfo
+        .map((info, i) => ({ ...info, idx: i }))
+        .filter(info => info.text.replace(/\s+/g, '').toLowerCase() === normalizedTarget);
+
+      if (matches.length > 1) {
+        console.log(`⚠️ 이름 "${boardName}"으로 ${matches.length}개 매칭됨: ${matches.map(m => `menuId=${m.dataValue}`).join(', ')} — 첫 번째 선택 (menuId 정보로 정확히 선택하려면 게시판 크롤링 후 다시 선택하세요)`);
       }
-    }
-
-    // 2차: data-value로 menuId 매칭
-    if (!boardFound && menuId) {
-      for (let i = 0; i < boardItems.length; i++) {
-        const dataValue = await boardItems[i].evaluate(el => {
-          return el.getAttribute('data-value') || el.querySelector('[data-value]')?.getAttribute('data-value') || '';
-        });
-        if (String(dataValue) === String(menuId)) {
-          await boardItems[i].click();
-          const optionText = await boardItems[i].$eval('.option_text', el => el.textContent.trim()).catch(() => '');
-          console.log(`게시판 data-value 매칭 선택: "${optionText}" (menuId=${dataValue})`);
-          boardFound = true;
-          break;
-        }
+      if (matches.length >= 1) {
+        await boardItems[matches[0].idx].click();
+        console.log(`게시판 이름 매칭 선택: "${matches[0].text}" (menuId=${matches[0].dataValue})`);
+        boardFound = true;
       }
-    }
-
-    // 3차: 첫 번째 게시판 선택 (폴백)
-    if (!boardFound && boardItems.length > 0) {
-      // 드롭다운 목록 출력
-      const availableBoards = await page.$$eval('.option_list .item', elements =>
-        elements.map(el => el.querySelector('.option_text')?.textContent?.trim() || '')
-      );
-      console.log('사용 가능한 게시판:', availableBoards.join(', '));
-
-      await boardItems[0].click();
-      console.log(`첫 번째 게시판으로 대체 선택: "${availableBoards[0]}"`);
-      boardFound = true;
     }
 
     if (!boardFound) {
       // 드롭다운 닫기
       await page.keyboard.press('Escape');
-      console.log('게시판 선택 실패');
+      console.log(`❌ 게시판 선택 실패: menuId=${menuId}, name="${boardName}"`);
+      console.log('드롭다운의 사용 가능한 게시판 목록:');
+      itemsInfo.forEach(info => console.log(`  - "${info.text}" (menuId=${info.dataValue})`));
       return false;
     }
 
@@ -248,30 +405,47 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   }
 
   // === 3. 본문 작성 ===
+  // text/image 세그먼트가 임의 개수, 임의 순서로 섞여도 동작하도록 각 세그먼트를 독립 처리
   for (let si = 0; si < bodySegments.length; si++) {
     const segment = bodySegments[si];
-    if (segment.type === 'text') {
-      await typeTextInEditor(page, segment.content);
-      await delay(500);
-    } else if (segment.type === 'image') {
-      const uploaded = await uploadImage(page, segment.filePath);
+    try {
+      if (segment.type === 'text') {
+        await typeTextInEditor(page, segment.content);
+        await delay(500);
+      } else if (segment.type === 'image') {
+        const uploaded = await uploadImage(page, segment.filePath);
 
-      // 이미지 후 에디터 포커스 복구 (업로드 성공/실패 무관)
-      // SmartEditor가 이미지 선택 모드 → Escape로 해제
-      await page.keyboard.press('Escape');
-      await delay(500);
+        // 이미지 선택 모드 해제
+        await page.keyboard.press('Escape');
+        await delay(500);
 
-      // 에디터 끝으로 커서 이동
-      await focusEditorByClick(page);
-      await delay(500);
+        // 파일 업로더 iframe이 focus를 잡고 있을 수 있음 → 해제
+        // (여러 이미지 연속 업로드 시 focus가 누적되어 후속 조작 실패하는 문제 방지)
+        await page.evaluate(() => {
+          const ae = document.activeElement;
+          if (ae && ae.tagName === 'IFRAME' && ae.blur) ae.blur();
+        });
+        await delay(200);
 
-      // 이미지 뒤에 커서가 있는지 확인, 다음 세그먼트가 있으면 새 줄 생성
-      if (si < bodySegments.length - 1) {
-        await page.keyboard.press('Enter');
-        await delay(300);
+        // 에디터 포커스 복구 (이미지 뒤의 빈 텍스트 컴포넌트 클릭)
+        const focused = await focusEditorByClick(page);
+        if (!focused) {
+          console.log(`[세그먼트 ${si}] 이미지 후 에디터 포커스 실패 — 다음 세그먼트가 있으면 입력 불가능할 수 있음`);
+        }
+        await delay(500);
+
+        // 다음 세그먼트가 있으면 Enter로 새 단락 생성 (첫 텍스트 작업과 동일 방식)
+        // SmartEditor 네이티브 Enter 핸들러가 새 <p><span class="__se-node"/></p> 생성 + 커서 배치
+        if (si < bodySegments.length - 1) {
+          await page.keyboard.press('Enter');
+          await delay(300);
+        }
+
+        console.log(`[세그먼트 ${si}] 이미지 ${uploaded ? '업로드 완료' : '업로드 실패'}`);
       }
-
-      console.log(`이미지 ${uploaded ? '업로드 완료' : '업로드 실패'}, 에디터 포커스 복구 완료`);
+    } catch (e) {
+      // 한 세그먼트 실패가 전체 포스트를 중단시키지 않도록 격리
+      console.error(`[세그먼트 ${si} (${segment.type})] 처리 중 오류:`, e.message);
     }
   }
 
@@ -280,11 +454,56 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   // === 4. 제목 입력 ===
   console.log('제목 입력 중...');
   await page.waitForSelector('.textarea_input', { timeout: 10000 });
+
+  // 이미지 업로드/에디터 조작 과정에서 iframe이 focus를 잡고 있을 수 있음 → 명시적으로 해제
+  await page.evaluate(() => {
+    const ae = document.activeElement;
+    if (ae && ae.tagName === 'IFRAME' && ae.blur) ae.blur();
+  });
+  await delay(200);
+
   const titleElement = await page.$('.textarea_input');
   if (titleElement) {
+    await titleElement.evaluate(el => el.scrollIntoView({ block: 'center' }));
     await titleElement.click();
     await delay(300);
+    // JS focus 중복 호출 — click만으로 focus가 안 잡히는 케이스 방어
+    await titleElement.evaluate(el => el.focus && el.focus());
+    await delay(200);
+
+    // 현재 activeElement 검증
+    const focusedTag = await page.evaluate(() => {
+      const ae = document.activeElement;
+      return ae ? `${ae.tagName}.${(ae.className || '').slice(0, 40)}` : '(none)';
+    });
+    console.log(`[제목] focus 후 activeElement: ${focusedTag}`);
+
+    // 기존 값 초기화 (textarea/input/contenteditable 모두 대응)
+    await titleElement.evaluate(el => {
+      if ('value' in el) el.value = '';
+      else el.textContent = '';
+    });
+
     await page.keyboard.type(title, { delay: 30 });
+    await delay(500);
+
+    // 실제로 제목 input에 값이 들어갔는지 검증
+    const typedTitle = await titleElement.evaluate(el => 'value' in el ? el.value : el.textContent);
+    console.log(`[제목] 입력 검증: "${typedTitle}" (목표="${title}")`);
+    if (!typedTitle || typedTitle.trim() !== title.trim()) {
+      console.log('[제목] 입력 실패 감지 — JS로 value 직접 설정 + input 이벤트 발송');
+      await titleElement.evaluate((el, v) => {
+        if ('value' in el) {
+          el.value = v;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          el.textContent = v;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }, title);
+      await delay(500);
+    }
     console.log(`제목 입력 완료: "${title}"`);
     await delay(1000);
   } else {
