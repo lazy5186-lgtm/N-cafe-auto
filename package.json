@@ -1,6 +1,6 @@
 {
   "name": "n-cafe-auto",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "네이버 카페 자동 등록 Electron 앱",
   "main": "src/main/index.js",
   "scripts": {
@@ -48,7 +48,7 @@
     "win": {
       "target": "nsis",
       "icon": "resources/icon.ico",
-      "requestedExecutionLevel": "requireAdministrator",
+      "requestedExecutionLevel": "asInvoker",
       "artifactName": "NCafeAuto-Setup-${version}.${ext}"
     },
     "nsis": {

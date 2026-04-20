@@ -1,5 +1,25 @@
 // N Cafe Auto — Global Tab Controller
 
+// HTML 엔티티 디코딩 (&bull; → •, &middot; → ·, &amp; → & 등)
+// 네이버 카페 API가 게시판 이름에 HTML 엔티티를 그대로 반환해서 UI에 이상하게 보이는 문제 해결
+function decodeHtmlEntities(s) {
+  if (!s || typeof s !== 'string') return s || '';
+  if (!s.includes('&')) return s; // 엔티티 없으면 그대로 반환 (성능)
+  const ta = document.createElement('textarea');
+  ta.innerHTML = s;
+  return ta.value;
+}
+
+// innerHTML에 안전하게 삽입하기 위한 HTML 이스케이프 (디코딩 후 재삽입 용도)
+function escapeHtml(s) {
+  if (!s || typeof s !== 'string') return s || '';
+  return s.replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+}
+
 // Toast 알림 (alert 대체 — 포커스 소실 방지)
 function showToast(message, duration) {
   duration = duration || 2000;
@@ -822,14 +842,16 @@ function renderMsEditor() {
   document.getElementById('ms-cafe-id').value = ms.cafeId || '';
   renderCafeSelect(ms);
 
-  // 게시판
+  // 게시판 — 네이버 API가 &bull; 같은 HTML 엔티티를 그대로 반환하므로 디코딩해서 •로 표시
   const boardSelect = document.getElementById('ms-board');
   boardSelect.innerHTML = '<option value="">게시판 선택...</option>';
   (ms.boards || []).forEach(b => {
-    boardSelect.innerHTML += `<option value="${b.menuId || ''}" ${b.menuId === ms.boardMenuId ? 'selected' : ''}>${b.menuName}</option>`;
+    const decoded = escapeHtml(decodeHtmlEntities(b.menuName));
+    boardSelect.innerHTML += `<option value="${b.menuId || ''}" ${b.menuId === ms.boardMenuId ? 'selected' : ''}>${decoded}</option>`;
   });
   if (ms.boardMenuId && !(ms.boards || []).find(b => b.menuId === ms.boardMenuId)) {
-    boardSelect.innerHTML += `<option value="${ms.boardMenuId}" selected>${ms.boardName || ms.boardMenuId}</option>`;
+    const decoded = escapeHtml(decodeHtmlEntities(ms.boardName || ms.boardMenuId));
+    boardSelect.innerHTML += `<option value="${ms.boardMenuId}" selected>${decoded}</option>`;
   }
 
   // 랜덤 닉네임 + 커스텀 닉네임
@@ -1034,7 +1056,8 @@ function applyBoardList(boards) {
   boards.forEach(b => {
     const opt = document.createElement('option');
     opt.value = b.menuId || '';
-    opt.textContent = b.menuName;
+    // HTML 엔티티 디코딩 (&bull; → •) — textContent는 엔티티를 디코딩하지 않으므로 직접 처리
+    opt.textContent = decodeHtmlEntities(b.menuName);
     if (b.menuId === currentVal) opt.selected = true;
     boardSelect.appendChild(opt);
   });

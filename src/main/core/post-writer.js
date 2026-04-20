@@ -327,11 +327,18 @@ async function selectBoard(page, menuId, boardName) {
     }
 
     // 2차: 이름 매칭 (menuId 못 찾은 경우만) — 같은 이름 다수이면 첫 번째 선택됨
+    // HTML 엔티티 정규화: `&bull;` / `•` 둘 다 같은 것으로 취급
     if (!boardFound && boardName) {
-      const normalizedTarget = boardName.replace(/\s+/g, '').toLowerCase();
+      const normalize = (s) => String(s || '')
+        .replace(/&bull;/gi, '•')
+        .replace(/&middot;/gi, '·')
+        .replace(/&amp;/gi, '&')
+        .replace(/\s+/g, '')
+        .toLowerCase();
+      const normalizedTarget = normalize(boardName);
       const matches = itemsInfo
         .map((info, i) => ({ ...info, idx: i }))
-        .filter(info => info.text.replace(/\s+/g, '').toLowerCase() === normalizedTarget);
+        .filter(info => normalize(info.text) === normalizedTarget);
 
       if (matches.length > 1) {
         console.log(`⚠️ 이름 "${boardName}"으로 ${matches.length}개 매칭됨: ${matches.map(m => `menuId=${m.dataValue}`).join(', ')} — 첫 번째 선택 (menuId 정보로 정확히 선택하려면 게시판 크롤링 후 다시 선택하세요)`);
