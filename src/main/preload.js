@@ -114,9 +114,18 @@ contextBridge.exposeInMainWorld('api', {
   selectImage: () => ipcRenderer.invoke('util:select-image'),
   openExternal: (url) => ipcRenderer.invoke('util:open-external', url),
   getChromePath: () => ipcRenderer.invoke('util:get-chrome-path'),
-  // 드래그앤드롭 된 File 객체의 로컬 경로 추출 (Electron 32+ 대응)
+  // 드래그앤드롭 된 File 객체의 로컬 경로 추출
+  // contextBridge를 통해 전달된 File 객체는 프록시일 수 있으므로 여러 방법 시도
   getFilePath: (file) => {
-    try { return webUtils.getPathForFile(file) || ''; } catch (e) { return ''; }
+    try {
+      // 1차: 내부 File 객체면 path 직접 접근 (Electron 31 이하)
+      if (file && typeof file === 'object' && file.path) return file.path;
+      // 2차: webUtils.getPathForFile (Electron 32+ 권장 방식)
+      const p = webUtils.getPathForFile(file);
+      return p || '';
+    } catch (e) {
+      return '';
+    }
   },
 
   // 이벤트 수신

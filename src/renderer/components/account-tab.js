@@ -203,16 +203,49 @@ const MsHelpers = {
     const setPath = (path) => {
       span.textContent = path;
       span.dataset.path = path;
+      console.log('[image-seg] 경로 설정됨:', path);
+    };
+    // File 객체에서 로컬 경로 추출 (Electron 버전별 대응)
+    const extractPath = (f) => {
+      // Electron 31 이하: File.path 사용 가능
+      let path = f.path || '';
+      // Electron 32+: webUtils.getPathForFile 필요
+      if (!path && window.api && typeof window.api.getFilePath === 'function') {
+        try {
+          path = window.api.getFilePath(f);
+        } catch (e) {
+          console.error('[image-seg] getFilePath 에러:', e.message);
+        }
+      }
+      return path;
     };
     // 파일 선택(클릭) 또는 외부 드래그 드롭 시 change 이벤트 발생
     fileInput.addEventListener('change', () => {
+      console.log('[image-seg] change 이벤트 — files:', fileInput.files?.length || 0);
       if (!fileInput.files || fileInput.files.length === 0) return;
       const f = fileInput.files[0];
-      let path = f.path || '';
-      if (!path && window.api && typeof window.api.getFilePath === 'function') {
-        path = window.api.getFilePath(f);
-      }
+      console.log('[image-seg] 파일 정보 — name:', f.name, 'type:', f.type, 'size:', f.size, 'path:', f.path);
+      const path = extractPath(f);
       if (path) setPath(path);
+      else console.warn('[image-seg] 경로 추출 실패 — File.path도 webUtils도 비어있음');
+    });
+    // 추가 안전망: 드롭 이벤트를 직접 처리 (input이 change 이벤트를 놓치는 경우 대비)
+    div.addEventListener('drop', (e) => {
+      div.classList.remove('drag-over');
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      console.log('[image-seg] drop 이벤트 직접 — files:', files.length);
+      const f = files[0];
+      if (!f.type || !f.type.startsWith('image/')) {
+        console.warn('[image-seg] 이미지 파일이 아님:', f.type);
+        return;
+      }
+      const path = extractPath(f);
+      if (path) {
+        e.preventDefault();
+        e.stopPropagation();
+        setPath(path);
+      }
     });
     // 드래그 호버 시각 효과
     div.addEventListener('dragover', (e) => {
@@ -221,9 +254,6 @@ const MsHelpers = {
     });
     div.addEventListener('dragleave', (e) => {
       if (e.relatedTarget && div.contains(e.relatedTarget)) return;
-      div.classList.remove('drag-over');
-    });
-    div.addEventListener('drop', () => {
       div.classList.remove('drag-over');
     });
     this._bindSegActions(div, container);
