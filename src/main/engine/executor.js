@@ -372,7 +372,7 @@ class Executor extends EventEmitter {
                 break;
               }
 
-              await this.randomDelay();
+              await this.randomDelay(settings.commentDelay);
 
               if (cmt.replies && cmt.replies.length > 0) {
                 await processReplies(cmt.replies, cmt.text, cmtResult);
