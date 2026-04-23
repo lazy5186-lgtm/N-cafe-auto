@@ -360,6 +360,36 @@ function setupTabs() {
 // 설정 탭
 // =============================================
 
+// 계정의 로그인 상태 표시 계산 — testStatus가 없으면 쿠키 유무로 폴백
+function getLoginStatusDisplay(acc, hasCookies) {
+  const status = acc.testStatus || (hasCookies ? 'success' : 'untested');
+  if (status === 'success') return { text: '성공', color: '#66bb6a' };
+  if (status === 'fail') return { text: '실패', color: '#ef5350' };
+  return { text: '• 미테스트', color: '#8892b0' };
+}
+
+// 단일 계정 로그인 테스트 — UI 업데이트 + in-memory testStatus 동기화
+async function testAccountAndUpdate(id) {
+  const statusEl = document.querySelector(`.login-status[data-id="${id}"]`);
+  if (statusEl) {
+    statusEl.textContent = '테스트 중...';
+    statusEl.style.color = '#ffa726';
+  }
+  const result = await window.api.loginTest(id);
+  const acc = accounts.find(a => a.id === id);
+  if (acc) acc.testStatus = result.success ? 'success' : 'fail';
+  if (statusEl) {
+    if (result.success) {
+      statusEl.textContent = '성공';
+      statusEl.style.color = '#66bb6a';
+    } else {
+      statusEl.textContent = `실패: ${result.error || ''}`;
+      statusEl.style.color = '#ef5350';
+    }
+  }
+  return result;
+}
+
 async function renderAccountsTable() {
   const tbody = document.getElementById('accounts-tbody');
   tbody.innerHTML = '';
@@ -367,14 +397,14 @@ async function renderAccountsTable() {
   const cookieResults = await Promise.all(accounts.map(acc => window.api.hasCookies(acc.id)));
 
   accounts.forEach((acc, i) => {
-    const hasCookies = cookieResults[i];
+    const status = getLoginStatusDisplay(acc, cookieResults[i]);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${acc.id}</td>
       <td class="pw-display">\u2022\u2022\u2022\u2022\u2022\u2022</td>
       <td>
         <button class="btn btn-sm btn-primary btn-login-test" data-id="${acc.id}">테스트</button>
-        <span class="login-status" data-id="${acc.id}" style="color:${hasCookies ? '#66bb6a' : ''}">${hasCookies ? '성공' : ''}</span>
+        <span class="login-status" data-id="${acc.id}" style="color:${status.color}">${status.text}</span>
       </td>
       <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
     `;
@@ -382,20 +412,7 @@ async function renderAccountsTable() {
   });
 
   tbody.querySelectorAll('.btn-login-test').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.id;
-      const statusEl = tbody.querySelector(`.login-status[data-id="${id}"]`);
-      statusEl.textContent = '테스트 중...';
-      statusEl.style.color = '#ffa726';
-      const result = await window.api.loginTest(id);
-      if (result.success) {
-        statusEl.textContent = '성공';
-        statusEl.style.color = '#66bb6a';
-      } else {
-        statusEl.textContent = `실패: ${result.error || ''}`;
-        statusEl.style.color = '#ef5350';
-      }
-    });
+    btn.addEventListener('click', () => testAccountAndUpdate(btn.dataset.id));
   });
 
   tbody.querySelectorAll('.btn-delete-account').forEach(btn => {
@@ -417,32 +434,20 @@ async function renderAccountsTable() {
 
 function appendAccountRow(acc, hasCookies) {
   const tbody = document.getElementById('accounts-tbody');
+  const status = getLoginStatusDisplay(acc, hasCookies);
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td>${acc.id}</td>
     <td class="pw-display">\u2022\u2022\u2022\u2022\u2022\u2022</td>
     <td>
       <button class="btn btn-sm btn-primary btn-login-test" data-id="${acc.id}">테스트</button>
-      <span class="login-status" data-id="${acc.id}" style="color:${hasCookies ? '#66bb6a' : ''}">${hasCookies ? '성공' : ''}</span>
+      <span class="login-status" data-id="${acc.id}" style="color:${status.color}">${status.text}</span>
     </td>
     <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
   `;
   tbody.appendChild(tr);
 
-  tr.querySelector('.btn-login-test').addEventListener('click', async () => {
-    const id = acc.id;
-    const statusEl = tr.querySelector(`.login-status`);
-    statusEl.textContent = '테스트 중...';
-    statusEl.style.color = '#ffa726';
-    const result = await window.api.loginTest(id);
-    if (result.success) {
-      statusEl.textContent = '성공';
-      statusEl.style.color = '#66bb6a';
-    } else {
-      statusEl.textContent = `실패: ${result.error || ''}`;
-      statusEl.style.color = '#ef5350';
-    }
-  });
+  tr.querySelector('.btn-login-test').addEventListener('click', () => testAccountAndUpdate(acc.id));
 
   tr.querySelector('.btn-delete-account').addEventListener('click', async () => {
     const id = acc.id;
@@ -514,38 +519,36 @@ function setupAddAccount() {
     setTimeout(() => { statusEl.textContent = ''; }, 5000);
   });
 
-  // 전체 로그인 테스트
-  document.getElementById('btn-login-all').addEventListener('click', async () => {
-    const btn = document.getElementById('btn-login-all');
-    btn.disabled = true;
-    btn.textContent = '테스트 중...';
+  // 일괄 로그인 테스트 (filter에 해당하는 계정만) — 세 버튼 공유 러너
+  async function runBatchLoginTest(filterFn, clickedBtn, emptyMsg) {
+    const targets = accounts.filter(filterFn);
+    if (targets.length === 0) return showToast(emptyMsg);
+    const batchBtns = ['btn-login-untested', 'btn-login-failed', 'btn-login-all']
+      .map(id => document.getElementById(id)).filter(Boolean);
+    const origLabel = clickedBtn.textContent;
+    batchBtns.forEach(b => { b.disabled = true; });
+    clickedBtn.textContent = '테스트 중...';
 
-    let success = 0;
-    let fail = 0;
-    for (const acc of accounts) {
-      const statusEl = document.querySelector(`.login-status[data-id="${acc.id}"]`);
-      if (statusEl) {
-        statusEl.textContent = '테스트 중...';
-        statusEl.style.color = '#ffa726';
-      }
-      const result = await window.api.loginTest(acc.id);
-      if (statusEl) {
-        if (result.success) {
-          statusEl.textContent = '성공';
-          statusEl.style.color = '#66bb6a';
-          success++;
-        } else {
-          statusEl.textContent = `실패: ${result.error || ''}`;
-          statusEl.style.color = '#ef5350';
-          fail++;
-        }
-      }
+    let success = 0, fail = 0;
+    for (const acc of targets) {
+      const result = await testAccountAndUpdate(acc.id);
+      if (result.success) success++; else fail++;
     }
 
-    btn.disabled = false;
-    btn.textContent = '전체 로그인 테스트';
-    showToast(`로그인 테스트 완료: 성공 ${success}, 실패 ${fail}`);
-  });
+    batchBtns.forEach(b => { b.disabled = false; });
+    clickedBtn.textContent = origLabel;
+    showToast(`로그인 테스트 완료 (${targets.length}개): 성공 ${success}, 실패 ${fail}`);
+  }
+
+  document.getElementById('btn-login-all').addEventListener('click', (e) =>
+    runBatchLoginTest(() => true, e.currentTarget, '계정이 없습니다.')
+  );
+  document.getElementById('btn-login-untested').addEventListener('click', (e) =>
+    runBatchLoginTest(a => (a.testStatus || 'untested') === 'untested', e.currentTarget, '미테스트 계정이 없습니다.')
+  );
+  document.getElementById('btn-login-failed').addEventListener('click', (e) =>
+    runBatchLoginTest(a => a.testStatus === 'fail', e.currentTarget, '실패한 계정이 없습니다.')
+  );
 
   // 전체 계정 삭제
   document.getElementById('btn-delete-all-accounts').addEventListener('click', async () => {

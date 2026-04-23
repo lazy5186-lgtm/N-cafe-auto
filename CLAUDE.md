@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.7.4
+- **Current version**: 1.7.5
 
 ## Architecture
 
@@ -48,7 +48,8 @@ There are no tests or linting configured.
 - `post-liker.js` — Post like automation (`likePost` with verification), member article list (`fetchMemberArticles` via `CafeMemberNetworkArticleListV3` API), memberKey extraction (5-stage strategy), author skip via edit/delete button detection
 
 **Engine** (`src/main/engine/`):
-- `executor.js` — Global orchestration: iterates all enabled manuscripts, switches accounts as needed (browser restart + IP change per account switch), handles cross-account comments/replies recursively, comment abort on failure (`commentAborted` flag), per-manuscript random nickname, pause/resume/stop via EventEmitter, 60-100s random delay between tasks
+- `executor.js` — Global orchestration: iterates all enabled manuscripts, switches accounts as needed (browser restart + IP change per account switch), handles cross-account comments/replies recursively, comment abort on failure (`commentAborted` flag), per-manuscript random nickname, **random account selection** (`ms.randomAccount` for poster, `item.randomAccount` for each comment/reply — excludes post author), pause/resume/stop via EventEmitter, configurable random delay between comments/replies via `settings.commentDelay`
+- `scheduler.js` — Scheduled publishing: 30s polling, runs manuscripts whose `scheduledAt` is due. **Past-due grace window: 2 min** — anything older marked `expired` (PC/app was off). Skips when manual execution is running. Status flow: `pending` → `running` → `executed`/`failed`/`expired`. Scheduled manuscripts run regardless of `enabled` flag.
 - `task-queue.js` — Generic task queue with state management (idle/running/paused/stopped), EventEmitter-based progress tracking, `waitIfPaused()` for cooperative pause/resume
 - `result-logger.js` — Timestamped execution log tracking
 
@@ -62,10 +63,10 @@ There are no tests or linting configured.
 - Subdirectories: `cookies/`, `crawl-cache/`, `logs/`
 
 ### Renderer Process (`src/renderer/`)
-- `index.html` — Single-page UI with 5 global tabs (설정/원고/실행/삭제/좋아요) + 단축키
-- `app.js` — Global tab controller: settings (accounts, IP, headless, nickname words), manuscript list/editor, execution controls with results/CSV export, delete management, like tab, shortcut system, version display + update check, toast notifications (replaces `alert()`)
-- `components/account-tab.js` — `MsHelpers` object: DOM rendering helpers for segments, comments (with randomNickname checkbox), recursive replies
-- `styles/main.css` — Dark theme styling
+- `index.html` — Single-page UI with 5 global tabs (설정/원고/실행/삭제/좋아요) + 단축키. Manuscript editor includes per-manuscript `예약 발행` datetime input.
+- `app.js` — Global tab controller: settings (accounts with persistent login `testStatus` + filter buttons "미테스트만 테스트" / "실패만 재테스트" / "전체 로그인 테스트", IP, headless, nickname words, comment delay), manuscript list/editor with scheduled publish + random account, execution controls with results/CSV export, delete management, like tab, shortcut system, version display + update check, toast notifications (replaces `alert()`)
+- `components/account-tab.js` — `MsHelpers` object: DOM rendering helpers for segments, comments (with `randomNickname` + `randomAccount` checkboxes), recursive replies. **Drag-and-drop**: `setupDropZone()` attaches dragover/drop handlers to image segment areas; `getDroppedImagePaths()` reads `e.dataTransfer.files`. Global `dropZoneGuard` prevents Electron from navigating away when files dropped outside drop zones.
+- `styles/main.css` — Dark theme styling, `.drag-over` highlight class
 - All renderer code is vanilla JS (no framework), communicates with main process via `window.api`
 
 ## Code Protection (Build)
@@ -86,7 +87,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 - **CommonJS modules** throughout (`require`/`module.exports`)
 - **IPC naming convention**: `domain:action` (e.g., `accounts:load`, `execution:start`, `settings:save`), constants in `src/shared/constants.js`
 - **Renderer calls main** via `ipcRenderer.invoke()` / `ipcMain.handle()` (request-response)
-- **Main pushes to renderer** via `safeSend()` wrapper (checks `mainWindow && !mainWindow.isDestroyed()`) for events: `execution:log`, `execution:progress`, `execution:complete`, `ip:status`, `update:*`
+- **Main pushes to renderer** via `safeSend()` wrapper (checks `mainWindow && !mainWindow.isDestroyed()`) for events: `execution:log`, `execution:progress`, `execution:complete`, `ip:status`, `update:*`, `scheduler:log`, `scheduler:progress`, `scheduler:manuscripts-updated`
 - **Browser automation** uses puppeteer-core with local Chrome installation (not bundled Chromium)
 - **Browser isolation**: New browser launched on every account switch — fresh cookie/cache state per account
 - **Random fingerprint**: 6 User-Agents (Chrome/Firefox/Edge) × 6 viewports — selected randomly per session via `setupPage({ randomFingerprint: true })`
@@ -99,7 +100,10 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 - **Text insertion**: `execCommand('insertText')` line-by-line with `keyboard.type()` fallback — no CDP keyboard events
 - **Board template**: Board selected first (not via URL menuId) → `waitForFunction` for `.se-module-text:not(.se-is-empty)` (max 10s) → if template: Enter×2 (SmartEditor auto-positions cursor); if no template: click editor to focus
 - **Comment abort**: Any comment/reply failure aborts remaining comments for that manuscript, moves to next
-- **Random delay**: 60-100 second random delay between tasks in executor (anti-detection)
+- **Comment delay**: Configurable random delay between comments/replies via `settings.commentDelay` (default 60-100s, can be disabled). Applied to BOTH comments and replies (must use the same delay branch in both loops — v1.7.3 fix).
+- **Random account selection**: `manuscript.randomAccount` picks any registered account as poster; `comment.randomAccount` / `reply.randomAccount` pick random commenter excluding the post author.
+- **Scheduled publishing**: Per-manuscript `scheduledAt` (ISO string). Polled every 30s; manuscripts past their time by >2 min get marked `expired` (no auto-execute) — see Scheduled Publishing section.
+- **Drag-and-drop image upload** (renderer): Image body segments accept dropped files. Global guard prevents stray drops from navigating away in packaged app. HTML entities in dropped paths are decoded (v1.7.1 fix for packaged builds).
 - **Toast notifications**: Non-blocking toast messages replace `alert()` in renderer (prevents focus loss)
 
 ## Data Structures
@@ -109,6 +113,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 {
   headless: false,  // true = browser hidden
   ipChange: { enabled, method: 'adb', adb: {} },
+  commentDelay: { enabled: true, minSeconds: 60, maxSeconds: 100 },
   shortcuts: { ... }
 }
 ```
@@ -121,13 +126,17 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
       id, accountId, cafeId, cafeName,
       boards: [{ menuId, menuName }],
       boardMenuId, boardName, enabled,
-      randomNickname, visibility,  // 'public' | 'member'
+      randomNickname, randomAccount,           // randomAccount: pick poster from all accounts
+      visibility,                              // 'public' | 'member'
+      scheduledAt,                             // ISO datetime — empty = manual run only
+      scheduledStatus,                         // 'pending'|'running'|'executed'|'failed'|'expired'
+      lastRunAt, lastError,
       post: { title, bodySegments: [{ type: 'text'|'image', content|filePath }] },
       comments: [
         {
-          accountId, randomNickname, text, imagePath,
+          accountId, randomNickname, randomAccount, text, imagePath,
           replies: [
-            { accountId, randomNickname, text, imagePath, replies: [...] }
+            { accountId, randomNickname, randomAccount, text, imagePath, replies: [...] }
           ]
         }
       ]
@@ -189,6 +198,15 @@ Three fallback strategies with deduplication:
 - ADB binaries bundled in `resources/adb/` (adb.exe, AdbWinApi.dll, AdbWinUsbApi.dll)
 - IP change applied to: executor (every account switch), login test, cafe crawling, like fetch, delete
 - `changeIPWithStatus()` helper sends `ip:status` event to renderer for real-time display
+
+## Scheduled Publishing
+
+- **Polling**: 30-second `setInterval` in `scheduler.js`. Initial tick fires 3s after start to catch missed schedules from previous app shutdown.
+- **Grace window**: 2 minutes. A manuscript whose `scheduledAt` is older than `now - 2min` is marked `expired` (PC/app was off, or detection too late) — **NOT auto-executed** (v1.7.4 design choice to avoid surprise posts).
+- **Concurrency**: Skips tick if manual execution is running (`isManualRunning()`) or another scheduler tick is in progress.
+- **Execution**: Each due manuscript runs through a fresh `Executor.execute([msRun], settings, accounts)` with `enabled: true` forced (the schedule itself signals intent).
+- **Status**: `pending` (waiting) → `running` → `executed` (success) | `failed` (error) | `expired` (missed). Renderer shows status next to manuscript title; reset via `scheduler:reset` IPC.
+- **IPC**: `scheduler:set` / `scheduler:list` / `scheduler:reset` / `scheduler:run-now` (handle), `scheduler:log` / `scheduler:progress` / `scheduler:manuscripts-updated` (push events).
 
 ## Auto-Update (electron-updater)
 

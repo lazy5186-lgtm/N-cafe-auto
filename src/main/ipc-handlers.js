@@ -26,6 +26,7 @@ function registerHandlers(mainWindow) {
       id: account.id,
       password: account.password,
       nickname: '',
+      testStatus: 'untested',
     });
     return { success: ok };
   });
@@ -86,9 +87,11 @@ function registerHandlers(mainWindow) {
         store.saveCookies(account.id, cookies);
       }
       await browser.close();
+      store.updateAccount(account.id, { testStatus: result.success ? 'success' : 'fail' });
       return { success: result.success, method: result.method };
     } catch (e) {
       if (browser) await browser.close().catch(() => {});
+      store.updateAccount(accountId, { testStatus: 'fail' });
       return { success: false, error: e.message };
     }
   });
