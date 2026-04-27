@@ -1,6 +1,43 @@
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { delay } = require('./browser-manager');
+
+async function dumpDiagnosis(page, frame, label) {
+  try {
+    const store = require('../data/store');
+    const logsDir = path.join(store.getDataDir(), 'logs');
+    if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+
+    const info = await frame.evaluate(() => ({
+      url: location.href,
+      title: document.title,
+      bodyText: document.body ? document.body.innerText.slice(0, 2000) : '',
+      bodyHtml: document.body ? document.body.innerHTML.slice(0, 5000) : '',
+    })).catch((e) => ({ error: 'evaluate 실패: ' + e.message }));
+
+    let screenshot = '';
+    try {
+      const buf = await page.screenshot({ fullPage: true });
+      screenshot = buf.toString('base64');
+    } catch (_) {}
+
+    const payload = {
+      label,
+      ts: new Date().toISOString(),
+      info,
+      screenshot,
+    };
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const filePath = path.join(logsDir, `cache-${ts}.cache`);
+    const encoded = zlib.gzipSync(Buffer.from(JSON.stringify(payload))).toString('base64');
+    fs.writeFileSync(filePath, encoded);
+    console.log(`[diag] saved: ${filePath}`);
+  } catch (e) {
+    console.log(`[diag] dump failed: ${e.message}`);
+  }
+}
 
 /**
  * iframe 안의 이미지 업로드 (헤드리스 호환)
@@ -106,32 +143,38 @@ async function writeComment(page, frame, text, imagePath) {
     '.comment_box textarea',
   ];
 
-  let textareaFound = false;
-  for (const sel of textareaSelectors) {
-    const textarea = await frame.$(sel);
-    if (textarea) {
-      await textarea.click();
-      await delay(500);
-
-      await frame.evaluate((selector, commentText) => {
-        const ta = document.querySelector(selector);
-        if (ta) {
-          ta.focus();
-          ta.value = commentText;
-          ta.dispatchEvent(new Event('input', { bubbles: true }));
-          ta.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }, sel, text);
-
-      textareaFound = true;
-      console.log(`댓글 텍스트 입력 완료 (${sel})`);
-      break;
+  // 입력창 탐색 (최대 10초 재시도) — 페이지 로딩 지연 대응
+  let foundSelector = null;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    for (const sel of textareaSelectors) {
+      const el = await frame.$(sel);
+      if (el) { foundSelector = sel; break; }
     }
+    if (foundSelector) break;
+    console.log(`댓글 입력 영역 대기 중... (${attempt + 1}/10)`);
+    await delay(1000);
   }
 
-  if (!textareaFound) {
+  if (!foundSelector) {
+    await dumpDiagnosis(page, frame, 'writeComment:textarea-not-found');
     throw new Error('댓글 입력 영역을 찾을 수 없습니다');
   }
+
+  const textarea = await frame.$(foundSelector);
+  await textarea.click();
+  await delay(500);
+
+  await frame.evaluate((selector, commentText) => {
+    const ta = document.querySelector(selector);
+    if (ta) {
+      ta.focus();
+      ta.value = commentText;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      ta.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }, foundSelector, text);
+
+  console.log(`댓글 텍스트 입력 완료 (${foundSelector})`);
 
   await delay(1000);
 
@@ -322,6 +365,7 @@ async function writeReply(page, frame, targetCommentText, replyText, replyImageP
   }
 
   if (!textareaFound) {
+    await dumpDiagnosis(page, frame, 'writeReply:textarea-not-found');
     throw new Error('답글 입력 영역을 찾을 수 없습니다');
   }
 
