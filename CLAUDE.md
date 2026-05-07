@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.7.6
+- **Current version**: 1.7.7
 
 ## Architecture
 
@@ -99,7 +99,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 - **Comment image upload**: `page.waitForFileChooser()` + `frame.evaluate(label.click())` — required for iframe + headless compatibility. `uploadFile()` does NOT work on iframe elements in headless mode.
 - **Text insertion**: `execCommand('insertText')` line-by-line with `keyboard.type()` fallback — no CDP keyboard events
 - **Board template**: Board selected first (not via URL menuId) → `waitForFunction` for `.se-module-text:not(.se-is-empty)` (max 10s) → if template: Enter×2 (SmartEditor auto-positions cursor); if no template: click editor to focus
-- **Comment abort**: Any comment/reply failure aborts remaining comments for that manuscript, moves to next
+- **Comment continue-on-fail** (`settings.commentContinueOnFail`, default `true`): Main comment fail → skip its reply chain, continue to next main comment. Reply fail → skip that reply's descendants, continue to next sibling reply. Set to `false` to revert to legacy abort-all behavior (any comment/reply failure aborts the manuscript's remaining comments).
 - **Comment delay**: Configurable random delay between comments/replies via `settings.commentDelay` (default 60-100s, can be disabled). Applied to BOTH comments and replies (must use the same delay branch in both loops — v1.7.3 fix).
 - **Random account selection**: `manuscript.randomAccount` picks any registered account as poster; `comment.randomAccount` / `reply.randomAccount` pick random commenter excluding the post author.
 - **Scheduled publishing**: Per-manuscript `scheduledAt` (ISO string). Polled every 30s; manuscripts past their time by >2 min get marked `expired` (no auto-execute) — see Scheduled Publishing section.
@@ -114,6 +114,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
   headless: false,  // true = browser hidden
   ipChange: { enabled, method: 'adb', adb: {} },
   commentDelay: { enabled: true, minSeconds: 60, maxSeconds: 100 },
+  commentContinueOnFail: true,  // false = legacy abort-all on first comment failure
   shortcuts: { ... }
 }
 ```

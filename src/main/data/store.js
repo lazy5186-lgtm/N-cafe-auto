@@ -123,6 +123,7 @@ function loadSettings() {
     ipChange: { enabled: false, interfaceName: '' },
     nicknameChange: { enabled: false },
     commentDelay: { enabled: true, minSeconds: 60, maxSeconds: 100 },
+    commentContinueOnFail: true,
   });
 }
 

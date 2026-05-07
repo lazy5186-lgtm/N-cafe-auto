@@ -609,6 +609,12 @@ function setupSettingsToggles() {
     });
   }
 
+  // 댓글 이어하기 설정
+  const cmtContinueToggle = document.getElementById('toggle-comment-continue');
+  if (cmtContinueToggle) {
+    cmtContinueToggle.checked = settings.commentContinueOnFail !== false;
+  }
+
   // 인터페이스 확인
   document.getElementById('btn-check-iface').addEventListener('click', async () => {
     const statusEl = document.getElementById('adb-status');
@@ -671,6 +677,7 @@ function setupSettingsToggles() {
         minSeconds: Math.max(1, parseInt(cmtDelayMin ? cmtDelayMin.value : '60', 10) || 60),
         maxSeconds: Math.max(1, parseInt(cmtDelayMax ? cmtDelayMax.value : '100', 10) || 100),
       },
+      commentContinueOnFail: cmtContinueToggle ? cmtContinueToggle.checked : true,
       shortcuts: getShortcutSaveData(),
     };
     await window.api.saveSettings(settings);

@@ -273,6 +273,9 @@ class Executor extends EventEmitter {
             };
 
             // 댓글 작업 중 실패 시 원고 전체 댓글 중단 플래그
+            // settings.commentContinueOnFail === false 일 때만 사용 (기존 동작 유지)
+            // true(기본)일 때는 실패 시 `continue`로 다음 댓글로 진행
+            const continueOnFail = settings.commentContinueOnFail !== false;
             let commentAborted = false;
 
             // 랜덤 계정 선택 헬퍼
@@ -310,6 +313,10 @@ class Executor extends EventEmitter {
                   replyResult.status = 'failed';
                   replyResult.error = '계정 전환 실패';
                   parentResult.replies.push(replyResult);
+                  if (continueOnFail) {
+                    this.log(`대댓글 계정 전환 실패 → 다음 형제 대댓글로 진행 (자손 스킵)`);
+                    continue;
+                  }
                   commentAborted = true;
                   this.log(`댓글 작업 중단 → 다음 원고로 이동`);
                   break;
@@ -325,6 +332,10 @@ class Executor extends EventEmitter {
                   replyResult.error = replyErr.message;
                   this.log(`대댓글 작성 실패: ${replyErr.message}`);
                   parentResult.replies.push(replyResult);
+                  if (continueOnFail) {
+                    this.log(`다음 형제 대댓글로 진행 (자손 스킵)`);
+                    continue;
+                  }
                   commentAborted = true;
                   this.log(`댓글 작업 중단 → 다음 원고로 이동`);
                   break;
@@ -352,29 +363,38 @@ class Executor extends EventEmitter {
                 cmtResult.status = 'failed';
                 cmtResult.error = '계정 전환 실패';
                 resultEntry.comments.push(cmtResult);
+                if (continueOnFail) {
+                  this.log(`메인댓글 계정 전환 실패 → 대댓글 체인 스킵, 다음 메인댓글로 진행`);
+                  continue;
+                }
                 commentAborted = true;
                 this.log(`댓글 작업 중단 → 다음 원고로 이동`);
                 break;
               }
 
+              let mainCmtSucceeded = false;
               try {
                 const frame = await commentWriter.navigateToArticle(page, postUrl);
                 await commentWriter.writeComment(page, frame, cmt.text, cmt.imagePath);
                 cmtResult.status = 'success';
+                mainCmtSucceeded = true;
                 this.log(`댓글 작성 완료 (${cmtAccId})`);
               } catch (cmtErr) {
                 cmtResult.status = 'failed';
                 cmtResult.error = cmtErr.message;
                 this.log(`댓글 작성 실패: ${cmtErr.message}`);
-                resultEntry.comments.push(cmtResult);
-                commentAborted = true;
-                this.log(`댓글 작업 중단 → 다음 원고로 이동`);
-                break;
+                if (!continueOnFail) {
+                  resultEntry.comments.push(cmtResult);
+                  commentAborted = true;
+                  this.log(`댓글 작업 중단 → 다음 원고로 이동`);
+                  break;
+                }
+                this.log(`대댓글 체인 스킵, 다음 메인댓글로 진행`);
               }
 
               await this.randomDelay(settings.commentDelay);
 
-              if (cmt.replies && cmt.replies.length > 0) {
+              if (mainCmtSucceeded && cmt.replies && cmt.replies.length > 0) {
                 await processReplies(cmt.replies, cmt.text, cmtResult);
               }
 
