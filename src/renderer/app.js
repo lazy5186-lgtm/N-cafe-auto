@@ -360,6 +360,23 @@ function setupTabs() {
 // 설정 탭
 // =============================================
 
+// 계정 아이디 검색 — 입력값을 포함하는 행만 표시, 매칭 개수 노출
+function applyAccountSearchFilter() {
+  const input = document.getElementById('account-search');
+  const countEl = document.getElementById('account-search-count');
+  if (!input) return;
+  const q = input.value.trim().toLowerCase();
+  const rows = document.querySelectorAll('#accounts-tbody tr');
+  let matched = 0;
+  rows.forEach(tr => {
+    const id = (tr.dataset.accountId || '').toLowerCase();
+    const hit = !q || id.includes(q);
+    tr.style.display = hit ? '' : 'none';
+    if (hit) matched++;
+  });
+  if (countEl) countEl.textContent = q ? `${matched} / ${rows.length} 매칭` : '';
+}
+
 // 계정의 로그인 상태 표시 계산 — testStatus가 없으면 쿠키 유무로 폴백
 function getLoginStatusDisplay(acc, hasCookies) {
   const status = acc.testStatus || (hasCookies ? 'success' : 'untested');
@@ -399,6 +416,7 @@ async function renderAccountsTable() {
   accounts.forEach((acc, i) => {
     const status = getLoginStatusDisplay(acc, cookieResults[i]);
     const tr = document.createElement('tr');
+    tr.dataset.accountId = acc.id;
     tr.innerHTML = `
       <td>${acc.id}</td>
       <td class="pw-display">\u2022\u2022\u2022\u2022\u2022\u2022</td>
@@ -410,6 +428,8 @@ async function renderAccountsTable() {
     `;
     tbody.appendChild(tr);
   });
+
+  applyAccountSearchFilter();
 
   tbody.querySelectorAll('.btn-login-test').forEach(btn => {
     btn.addEventListener('click', () => testAccountAndUpdate(btn.dataset.id));
@@ -436,6 +456,7 @@ function appendAccountRow(acc, hasCookies) {
   const tbody = document.getElementById('accounts-tbody');
   const status = getLoginStatusDisplay(acc, hasCookies);
   const tr = document.createElement('tr');
+  tr.dataset.accountId = acc.id;
   tr.innerHTML = `
     <td>${acc.id}</td>
     <td class="pw-display">\u2022\u2022\u2022\u2022\u2022\u2022</td>
@@ -446,6 +467,7 @@ function appendAccountRow(acc, hasCookies) {
     <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
   `;
   tbody.appendChild(tr);
+  applyAccountSearchFilter();
 
   tr.querySelector('.btn-login-test').addEventListener('click', () => testAccountAndUpdate(acc.id));
 
@@ -457,6 +479,21 @@ function appendAccountRow(acc, hasCookies) {
     tr.remove();
     window.focus();
     setTimeout(() => document.getElementById('new-account-id').focus(), 100);
+  });
+}
+
+function setupAccountSearch() {
+  const input = document.getElementById('account-search');
+  if (!input) return;
+  input.addEventListener('input', applyAccountSearchFilter);
+  // Ctrl+F: 설정 탭에서만 검색창에 포커스
+  document.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey && (e.key === 'f' || e.key === 'F'))) return;
+    const settingsTab = document.querySelector('.tab-panel.active[data-tab="settings"]');
+    if (!settingsTab) return;
+    e.preventDefault();
+    input.focus();
+    input.select();
   });
 }
 
@@ -520,8 +557,10 @@ function setupAddAccount() {
   });
 
   // 일괄 로그인 테스트 (filter에 해당하는 계정만) — 세 버튼 공유 러너
+  // filterFn은 (account, hasCookies)를 받아 표시 상태와 동일한 기준으로 판단
   async function runBatchLoginTest(filterFn, clickedBtn, emptyMsg) {
-    const targets = accounts.filter(filterFn);
+    const cookieResults = await Promise.all(accounts.map(acc => window.api.hasCookies(acc.id)));
+    const targets = accounts.filter((a, i) => filterFn(a, cookieResults[i]));
     if (targets.length === 0) return showToast(emptyMsg);
     const batchBtns = ['btn-login-untested', 'btn-login-failed', 'btn-login-all']
       .map(id => document.getElementById(id)).filter(Boolean);
@@ -544,7 +583,7 @@ function setupAddAccount() {
     runBatchLoginTest(() => true, e.currentTarget, '계정이 없습니다.')
   );
   document.getElementById('btn-login-untested').addEventListener('click', (e) =>
-    runBatchLoginTest(a => (a.testStatus || 'untested') === 'untested', e.currentTarget, '미테스트 계정이 없습니다.')
+    runBatchLoginTest((a, hasCookies) => !a.testStatus && !hasCookies, e.currentTarget, '미테스트 계정이 없습니다.')
   );
   document.getElementById('btn-login-failed').addEventListener('click', (e) =>
     runBatchLoginTest(a => a.testStatus === 'fail', e.currentTarget, '실패한 계정이 없습니다.')
@@ -2015,6 +2054,7 @@ async function initApp() {
 
   // 설정 탭
   renderAccountsTable();
+  setupAccountSearch();
   setupAddAccount();
   setupSettingsToggles();
   setupShortcuts();
