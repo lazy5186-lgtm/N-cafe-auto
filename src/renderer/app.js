@@ -375,6 +375,7 @@ function applyAccountSearchFilter() {
     if (hit) matched++;
   });
   if (countEl) countEl.textContent = q ? `${matched} / ${rows.length} 매칭` : '';
+  syncAccountSelectAllState();
 }
 
 // 계정의 로그인 상태 표시 계산 — testStatus가 없으면 쿠키 유무로 폴백
@@ -437,6 +438,7 @@ async function renderAccountsTable() {
     const tr = document.createElement('tr');
     tr.dataset.accountId = acc.id;
     tr.innerHTML = `
+      <td><input type="checkbox" class="account-check" data-id="${acc.id}"></td>
       <td>${acc.id}</td>
       <td class="pw-display">\u2022\u2022\u2022\u2022\u2022\u2022</td>
       <td>
@@ -450,6 +452,11 @@ async function renderAccountsTable() {
   });
 
   applyAccountSearchFilter();
+  syncAccountSelectAllState();
+
+  tbody.querySelectorAll('.account-check').forEach(cb => {
+    cb.addEventListener('change', syncAccountSelectAllState);
+  });
 
   tbody.querySelectorAll('.btn-login-test').forEach(btn => {
     btn.addEventListener('click', () => testAccountAndUpdate(btn.dataset.id));
@@ -478,6 +485,7 @@ function appendAccountRow(acc, hasCookies) {
   const tr = document.createElement('tr');
   tr.dataset.accountId = acc.id;
   tr.innerHTML = `
+    <td><input type="checkbox" class="account-check" data-id="${acc.id}"></td>
     <td>${acc.id}</td>
     <td class="pw-display">\u2022\u2022\u2022\u2022\u2022\u2022</td>
     <td>
@@ -489,6 +497,9 @@ function appendAccountRow(acc, hasCookies) {
   `;
   tbody.appendChild(tr);
   applyAccountSearchFilter();
+  syncAccountSelectAllState();
+
+  tr.querySelector('.account-check').addEventListener('change', syncAccountSelectAllState);
 
   tr.querySelector('.btn-login-test').addEventListener('click', () => testAccountAndUpdate(acc.id));
 
@@ -577,13 +588,19 @@ function setupAddAccount() {
     setTimeout(() => { statusEl.textContent = ''; }, 5000);
   });
 
-  // 일괄 로그인 테스트 (filter에 해당하는 계정만) — 세 버튼 공유 러너
-  // filterFn은 (account, hasCookies)를 받아 표시 상태와 동일한 기준으로 판단
+  // 일괄 로그인 테스트 (filter에 해당하는 계정만) — 네 버튼 공유 러너
+  // filterFn은 (account, ctx)를 받아 표시 상태와 동일한 기준으로 판단
+  // ctx: { hasCookies, expiry }
   async function runBatchLoginTest(filterFn, clickedBtn, emptyMsg) {
-    const cookieResults = await Promise.all(accounts.map(acc => window.api.hasCookies(acc.id)));
-    const targets = accounts.filter((a, i) => filterFn(a, cookieResults[i]));
+    const [cookieResults, expiryMap] = await Promise.all([
+      Promise.all(accounts.map(acc => window.api.hasCookies(acc.id))),
+      window.api.getCookieExpiry(),
+    ]);
+    const targets = accounts.filter((a, i) =>
+      filterFn(a, { hasCookies: cookieResults[i], expiry: expiryMap[a.id] })
+    );
     if (targets.length === 0) return showToast(emptyMsg);
-    const batchBtns = ['btn-login-untested', 'btn-login-failed', 'btn-login-all']
+    const batchBtns = ['btn-login-untested', 'btn-login-failed', 'btn-login-expired', 'btn-login-all']
       .map(id => document.getElementById(id)).filter(Boolean);
     const origLabel = clickedBtn.textContent;
     batchBtns.forEach(b => { b.disabled = true; });
@@ -604,10 +621,17 @@ function setupAddAccount() {
     runBatchLoginTest(() => true, e.currentTarget, '계정이 없습니다.')
   );
   document.getElementById('btn-login-untested').addEventListener('click', (e) =>
-    runBatchLoginTest((a, hasCookies) => !a.testStatus && !hasCookies, e.currentTarget, '미테스트 계정이 없습니다.')
+    runBatchLoginTest((a, ctx) => !a.testStatus && !ctx.hasCookies, e.currentTarget, '미테스트 계정이 없습니다.')
   );
   document.getElementById('btn-login-failed').addEventListener('click', (e) =>
     runBatchLoginTest(a => a.testStatus === 'fail', e.currentTarget, '실패한 계정이 없습니다.')
+  );
+  // 만료만 재테스트 — 카페쿠키 만료 또는 쿠키없음 계정
+  document.getElementById('btn-login-expired').addEventListener('click', (e) =>
+    runBatchLoginTest((a, ctx) => {
+      const s = ctx.expiry && ctx.expiry.status;
+      return s === 'expired' || s === 'no-cookie' || !s;
+    }, e.currentTarget, '만료/쿠키없음 계정이 없습니다.')
   );
 
   // 전체 계정 삭제
@@ -622,15 +646,19 @@ function setupAddAccount() {
     setTimeout(() => document.getElementById('new-account-id').focus(), 100);
   });
 
-  // 진단용 쿠키 내보내기 — 모든 계정 쿠키 메타데이터를 바탕화면으로 (값은 길이만)
+  // 진단용 쿠키 내보내기 — 체크한 계정만 (값은 길이만)
   document.getElementById('btn-export-cookies').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     if (accounts.length === 0) return showToast('내보낼 계정이 없습니다.');
+    const selectedIds = getSelectedAccountIds();
+    if (selectedIds.length === 0) {
+      return showToast('내보낼 계정을 체크박스로 선택하세요.');
+    }
     const origLabel = btn.textContent;
     btn.disabled = true;
     btn.textContent = '내보내는 중...';
     try {
-      const result = await window.api.exportRedactedCookies();
+      const result = await window.api.exportRedactedCookies(selectedIds);
       if (result.success) {
         showToast(`${result.count}개 계정 쿠키 내보내기 완료\n${result.outDir}`);
       } else {
@@ -641,6 +669,44 @@ function setupAddAccount() {
       btn.textContent = origLabel;
     }
   });
+
+  // 헤더 전체 선택 체크박스 (보이는 행만 토글)
+  const selectAllEl = document.getElementById('account-select-all');
+  if (selectAllEl) {
+    selectAllEl.addEventListener('change', () => {
+      const checked = selectAllEl.checked;
+      document.querySelectorAll('#accounts-tbody tr').forEach(tr => {
+        if (tr.style.display === 'none') return;
+        const cb = tr.querySelector('.account-check');
+        if (cb) cb.checked = checked;
+      });
+    });
+  }
+}
+
+// 체크된 계정 id 목록 (검색 필터로 숨겨진 행도 포함 — 체크 상태 기준)
+function getSelectedAccountIds() {
+  return Array.from(document.querySelectorAll('#accounts-tbody .account-check'))
+    .filter(cb => cb.checked)
+    .map(cb => cb.dataset.id);
+}
+
+// 헤더 체크박스 상태 동기화 (모두 체크/일부/없음)
+function syncAccountSelectAllState() {
+  const selectAllEl = document.getElementById('account-select-all');
+  if (!selectAllEl) return;
+  const visibleCbs = Array.from(document.querySelectorAll('#accounts-tbody tr'))
+    .filter(tr => tr.style.display !== 'none')
+    .map(tr => tr.querySelector('.account-check'))
+    .filter(Boolean);
+  if (visibleCbs.length === 0) {
+    selectAllEl.checked = false;
+    selectAllEl.indeterminate = false;
+    return;
+  }
+  const checked = visibleCbs.filter(cb => cb.checked).length;
+  selectAllEl.checked = checked === visibleCbs.length;
+  selectAllEl.indeterminate = checked > 0 && checked < visibleCbs.length;
 }
 
 
@@ -2114,31 +2180,6 @@ async function initApp() {
 
   // 좋아요 탭
   setupLikeTab();
-
-  // 카페쿠키 만료/없음 계정 자동 로그인 테스트 (백그라운드)
-  runStartupAutoLoginTest();
-}
-
-// 앱 시작 후 백그라운드로 카페쿠키 만료/없음 계정에 대해 순차 로그인 테스트
-async function runStartupAutoLoginTest() {
-  await new Promise(r => setTimeout(r, 3000));
-  try {
-    const expiryMap = await window.api.getCookieExpiry();
-    const targets = accounts.filter(a => {
-      const e = expiryMap && expiryMap[a.id];
-      return !e || e.status === 'no-cookie' || e.status === 'expired';
-    });
-    if (targets.length === 0) return;
-    showToast(`자동 로그인 테스트 시작: ${targets.length}개 (만료/쿠키없음)`);
-    let success = 0, fail = 0;
-    for (const acc of targets) {
-      const r = await testAccountAndUpdate(acc.id);
-      if (r && r.success) success++; else fail++;
-    }
-    showToast(`자동 로그인 테스트 완료: 성공 ${success}, 실패 ${fail}`);
-  } catch (e) {
-    console.error('자동 로그인 테스트 오류:', e);
-  }
 }
 
 // =============================================

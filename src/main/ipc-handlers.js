@@ -63,10 +63,14 @@ function registerHandlers(mainWindow) {
     return result;
   });
 
-  // 진단용: 모든 계정 쿠키 메타데이터를 바탕화면으로 내보내기 (value는 길이만)
-  ipcMain.handle('cookies:export-redacted', async () => {
+  // 진단용: 선택된 계정 쿠키 메타데이터를 바탕화면으로 내보내기 (value는 길이만)
+  // accountIds 미지정/빈 배열이면 전체 (하위 호환)
+  ipcMain.handle('cookies:export-redacted', async (_e, accountIds) => {
     try {
-      const accounts = store.loadAccounts();
+      const allAccounts = store.loadAccounts();
+      const accounts = Array.isArray(accountIds) && accountIds.length > 0
+        ? allAccounts.filter(a => accountIds.includes(a.id))
+        : allAccounts;
       const desktop = app.getPath('desktop');
       const outDir = path.join(desktop, 'ncafe-cookies-redacted');
       if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
