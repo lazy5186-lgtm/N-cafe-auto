@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('api', {
   deleteAccount: (accountId) => ipcRenderer.invoke('account:delete', accountId),
   hasCookies: (accountId) => ipcRenderer.invoke('accounts:has-cookies', accountId),
   loginTest: (accountId) => ipcRenderer.invoke('accounts:login-test', accountId),
+  getCookieExpiry: () => ipcRenderer.invoke('cookies:get-expiry'),
+  exportRedactedCookies: () => ipcRenderer.invoke('cookies:export-redacted'),
 
   // 설정 (글로벌)
   loadSettings: () => ipcRenderer.invoke('settings:load'),

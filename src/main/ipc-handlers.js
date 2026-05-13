@@ -1,5 +1,7 @@
 const { ipcMain, dialog, shell, app } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const fs = require('fs');
+const path = require('path');
 const store = require('./data/store');
 const browserManager = require('./core/browser-manager');
 const auth = require('./core/auth');
@@ -49,6 +51,50 @@ function registerHandlers(mainWindow) {
   ipcMain.handle('accounts:has-cookies', (_e, accountId) => {
     const cookies = store.loadCookies(accountId);
     return !!(cookies && cookies.length > 0);
+  });
+
+  // 전체 계정 카페 쿠키 만료 상태 (batch)
+  ipcMain.handle('cookies:get-expiry', () => {
+    const accounts = store.loadAccounts();
+    const result = {};
+    for (const acc of accounts) {
+      result[acc.id] = store.getCafeCookieExpiry(acc.id);
+    }
+    return result;
+  });
+
+  // 진단용: 모든 계정 쿠키 메타데이터를 바탕화면으로 내보내기 (value는 길이만)
+  ipcMain.handle('cookies:export-redacted', async () => {
+    try {
+      const accounts = store.loadAccounts();
+      const desktop = app.getPath('desktop');
+      const outDir = path.join(desktop, 'ncafe-cookies-redacted');
+      if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+
+      let count = 0;
+      for (const acc of accounts) {
+        const cookies = store.loadCookies(acc.id);
+        if (!cookies || cookies.length === 0) continue;
+        const redacted = cookies.map(c => ({
+          name: c.name,
+          domain: c.domain,
+          path: c.path,
+          expires: (typeof c.expires === 'number' && c.expires > 0)
+            ? new Date(c.expires * 1000).toISOString()
+            : 'session',
+          httpOnly: !!c.httpOnly,
+          secure: !!c.secure,
+          sameSite: c.sameSite || null,
+          valueLen: c.value ? String(c.value).length : 0,
+        }));
+        const outFile = path.join(outDir, `${acc.id}.redacted.json`);
+        fs.writeFileSync(outFile, JSON.stringify(redacted, null, 2), 'utf8');
+        count++;
+      }
+      return { success: true, count, outDir };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
   });
 
   // 안전한 send 헬퍼

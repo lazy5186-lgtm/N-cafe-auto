@@ -385,6 +385,13 @@ function getLoginStatusDisplay(acc, hasCookies) {
   return { text: '• 미테스트', color: '#8892b0' };
 }
 
+// 카페쿠키 만료 상태 표시 — D-N / 만료 / 쿠키 없음
+function getCookieExpiryDisplay(expiry) {
+  if (!expiry || expiry.status === 'no-cookie') return '쿠키 없음';
+  if (expiry.status === 'expired') return '만료';
+  return `D-${expiry.daysLeft}`;
+}
+
 // 단일 계정 로그인 테스트 — UI 업데이트 + in-memory testStatus 동기화
 async function testAccountAndUpdate(id) {
   const statusEl = document.querySelector(`.login-status[data-id="${id}"]`);
@@ -404,6 +411,14 @@ async function testAccountAndUpdate(id) {
       statusEl.style.color = '#ef5350';
     }
   }
+  // 로그인 성공 시 쿠키가 갱신되었으므로 만료일 표시도 갱신
+  if (result.success) {
+    try {
+      const expiryMap = await window.api.getCookieExpiry();
+      const expiryEl = document.querySelector(`.cookie-expiry[data-id="${id}"]`);
+      if (expiryEl) expiryEl.textContent = getCookieExpiryDisplay(expiryMap[id]);
+    } catch (_) { /* ignore */ }
+  }
   return result;
 }
 
@@ -411,10 +426,14 @@ async function renderAccountsTable() {
   const tbody = document.getElementById('accounts-tbody');
   tbody.innerHTML = '';
 
-  const cookieResults = await Promise.all(accounts.map(acc => window.api.hasCookies(acc.id)));
+  const [cookieResults, expiryMap] = await Promise.all([
+    Promise.all(accounts.map(acc => window.api.hasCookies(acc.id))),
+    window.api.getCookieExpiry(),
+  ]);
 
   accounts.forEach((acc, i) => {
     const status = getLoginStatusDisplay(acc, cookieResults[i]);
+    const expiryText = getCookieExpiryDisplay(expiryMap[acc.id]);
     const tr = document.createElement('tr');
     tr.dataset.accountId = acc.id;
     tr.innerHTML = `
@@ -424,6 +443,7 @@ async function renderAccountsTable() {
         <button class="btn btn-sm btn-primary btn-login-test" data-id="${acc.id}">테스트</button>
         <span class="login-status" data-id="${acc.id}" style="color:${status.color}">${status.text}</span>
       </td>
+      <td><span class="cookie-expiry" data-id="${acc.id}">${expiryText}</span></td>
       <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
     `;
     tbody.appendChild(tr);
@@ -464,6 +484,7 @@ function appendAccountRow(acc, hasCookies) {
       <button class="btn btn-sm btn-primary btn-login-test" data-id="${acc.id}">테스트</button>
       <span class="login-status" data-id="${acc.id}" style="color:${status.color}">${status.text}</span>
     </td>
+    <td><span class="cookie-expiry" data-id="${acc.id}">쿠키 없음</span></td>
     <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
   `;
   tbody.appendChild(tr);
@@ -599,6 +620,26 @@ function setupAddAccount() {
     showToast('모든 계정이 삭제되었습니다.');
     window.focus();
     setTimeout(() => document.getElementById('new-account-id').focus(), 100);
+  });
+
+  // 진단용 쿠키 내보내기 — 모든 계정 쿠키 메타데이터를 바탕화면으로 (값은 길이만)
+  document.getElementById('btn-export-cookies').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if (accounts.length === 0) return showToast('내보낼 계정이 없습니다.');
+    const origLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '내보내는 중...';
+    try {
+      const result = await window.api.exportRedactedCookies();
+      if (result.success) {
+        showToast(`${result.count}개 계정 쿠키 내보내기 완료\n${result.outDir}`);
+      } else {
+        showToast(`내보내기 실패: ${result.error || ''}`);
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origLabel;
+    }
   });
 }
 
@@ -2074,6 +2115,30 @@ async function initApp() {
   // 좋아요 탭
   setupLikeTab();
 
+  // 카페쿠키 만료/없음 계정 자동 로그인 테스트 (백그라운드)
+  runStartupAutoLoginTest();
+}
+
+// 앱 시작 후 백그라운드로 카페쿠키 만료/없음 계정에 대해 순차 로그인 테스트
+async function runStartupAutoLoginTest() {
+  await new Promise(r => setTimeout(r, 3000));
+  try {
+    const expiryMap = await window.api.getCookieExpiry();
+    const targets = accounts.filter(a => {
+      const e = expiryMap && expiryMap[a.id];
+      return !e || e.status === 'no-cookie' || e.status === 'expired';
+    });
+    if (targets.length === 0) return;
+    showToast(`자동 로그인 테스트 시작: ${targets.length}개 (만료/쿠키없음)`);
+    let success = 0, fail = 0;
+    for (const acc of targets) {
+      const r = await testAccountAndUpdate(acc.id);
+      if (r && r.success) success++; else fail++;
+    }
+    showToast(`자동 로그인 테스트 완료: 성공 ${success}, 실패 ${fail}`);
+  } catch (e) {
+    console.error('자동 로그인 테스트 오류:', e);
+  }
 }
 
 // =============================================
