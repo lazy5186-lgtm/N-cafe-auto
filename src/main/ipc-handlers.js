@@ -53,16 +53,6 @@ function registerHandlers(mainWindow) {
     return !!(cookies && cookies.length > 0);
   });
 
-  // 전체 계정 카페 쿠키 만료 상태 (batch)
-  ipcMain.handle('cookies:get-expiry', () => {
-    const accounts = store.loadAccounts();
-    const result = {};
-    for (const acc of accounts) {
-      result[acc.id] = store.getCafeCookieExpiry(acc.id);
-    }
-    return result;
-  });
-
   // 진단용: 선택된 계정 쿠키 메타데이터를 바탕화면으로 내보내기 (value는 길이만)
   // accountIds 미지정/빈 배열이면 전체 (하위 호환)
   ipcMain.handle('cookies:export-redacted', async (_e, accountIds) => {

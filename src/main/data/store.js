@@ -270,33 +270,6 @@ function loadCookies(userId) {
   return Array.isArray(parsed) ? parsed : (parsed.cookies || []);
 }
 
-// cafe.naver.com 도메인 쿠키의 가장 빠른 만료일 기준으로 상태 계산
-// 반환: { status: 'ok'|'expired'|'no-cookie', daysLeft: number|null, expiresAt: ISO|null }
-function getCafeCookieExpiry(userId) {
-  const cookies = loadCookies(userId);
-  if (!cookies || cookies.length === 0) {
-    return { status: 'no-cookie', daysLeft: null, expiresAt: null };
-  }
-  const cafeCookies = cookies.filter(c => c.domain && c.domain.includes('cafe.naver.com'));
-  if (cafeCookies.length === 0) {
-    return { status: 'no-cookie', daysLeft: null, expiresAt: null };
-  }
-  const expirations = cafeCookies
-    .map(c => Number(c.expires))
-    .filter(e => Number.isFinite(e) && e > 0);
-  if (expirations.length === 0) {
-    return { status: 'no-cookie', daysLeft: null, expiresAt: null };
-  }
-  const earliestUnix = Math.min(...expirations);
-  const expiresAt = new Date(earliestUnix * 1000);
-  const now = Date.now();
-  const daysLeft = Math.floor((expiresAt.getTime() - now) / 86400000);
-  if (daysLeft < 1) {
-    return { status: 'expired', daysLeft, expiresAt: expiresAt.toISOString() };
-  }
-  return { status: 'ok', daysLeft, expiresAt: expiresAt.toISOString() };
-}
-
 // === 실행 로그 ===
 
 function saveExecutionLog(log) {
@@ -417,7 +390,7 @@ module.exports = {
   loadSettings, saveSettings,
   loadGlobalManuscripts, saveGlobalManuscripts,
   migrateData, migrateDataV2,
-  saveCookies, loadCookies, getCafeCookieExpiry,
+  saveCookies, loadCookies,
   saveExecutionLog, listExecutionLogs, loadExecutionLog, appendDailyLog,
   saveCrawlCache, loadCrawlCache,
   loadNicknameWords, saveNicknameWords,

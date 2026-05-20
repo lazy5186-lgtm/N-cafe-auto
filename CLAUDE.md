@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.0
+- **Current version**: 1.8.1
 
 ## Architecture
 
@@ -64,7 +64,7 @@ There are no tests or linting configured.
 
 ### Renderer Process (`src/renderer/`)
 - `index.html` — Single-page UI with 5 global tabs (설정/원고/실행/삭제/좋아요) + 단축키. Manuscript editor includes per-manuscript `예약 발행` datetime input.
-- `app.js` — Global tab controller: settings (accounts with persistent login `testStatus` + filter buttons "미테스트만 테스트" / "실패만 재테스트" / "만료만 재테스트" / "전체 로그인 테스트", **cafe-cookie expiry display `D-N` / `만료` / `쿠키 없음` per account, per-row checkbox + header select-all for "진단용 쿠키 내보내기" (selected accounts only)**, IP, headless, nickname words, comment delay), manuscript list/editor with scheduled publish + random account, execution controls with results/CSV export, delete management, like tab, shortcut system, version display + update check, toast notifications (replaces `alert()`)
+- `app.js` — Global tab controller: settings (accounts with persistent login `testStatus` + filter buttons "미테스트만 테스트" / "실패만 재테스트" / "전체 로그인 테스트", **per-row checkbox + header select-all for "진단용 쿠키 내보내기" (selected accounts only)**, IP, headless, nickname words, comment delay), manuscript list/editor with scheduled publish + random account, execution controls with results/CSV export, delete management, like tab, shortcut system, version display + update check, toast notifications (replaces `alert()`)
 - `components/account-tab.js` — `MsHelpers` object: DOM rendering helpers for segments, comments (with `randomNickname` + `randomAccount` checkboxes), recursive replies. **Drag-and-drop**: `setupDropZone()` attaches dragover/drop handlers to image segment areas; `getDroppedImagePaths()` reads `e.dataTransfer.files`. Global `dropZoneGuard` prevents Electron from navigating away when files dropped outside drop zones.
 - `styles/main.css` — Dark theme styling, `.drag-over` highlight class
 - All renderer code is vanilla JS (no framework), communicates with main process via `window.api`

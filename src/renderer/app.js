@@ -386,13 +386,6 @@ function getLoginStatusDisplay(acc, hasCookies) {
   return { text: '• 미테스트', color: '#8892b0' };
 }
 
-// 카페쿠키 만료 상태 표시 — D-N / 만료 / 쿠키 없음
-function getCookieExpiryDisplay(expiry) {
-  if (!expiry || expiry.status === 'no-cookie') return '쿠키 없음';
-  if (expiry.status === 'expired') return '만료';
-  return `D-${expiry.daysLeft}`;
-}
-
 // 단일 계정 로그인 테스트 — UI 업데이트 + in-memory testStatus 동기화
 async function testAccountAndUpdate(id) {
   const statusEl = document.querySelector(`.login-status[data-id="${id}"]`);
@@ -412,14 +405,6 @@ async function testAccountAndUpdate(id) {
       statusEl.style.color = '#ef5350';
     }
   }
-  // 로그인 성공 시 쿠키가 갱신되었으므로 만료일 표시도 갱신
-  if (result.success) {
-    try {
-      const expiryMap = await window.api.getCookieExpiry();
-      const expiryEl = document.querySelector(`.cookie-expiry[data-id="${id}"]`);
-      if (expiryEl) expiryEl.textContent = getCookieExpiryDisplay(expiryMap[id]);
-    } catch (_) { /* ignore */ }
-  }
   return result;
 }
 
@@ -427,14 +412,10 @@ async function renderAccountsTable() {
   const tbody = document.getElementById('accounts-tbody');
   tbody.innerHTML = '';
 
-  const [cookieResults, expiryMap] = await Promise.all([
-    Promise.all(accounts.map(acc => window.api.hasCookies(acc.id))),
-    window.api.getCookieExpiry(),
-  ]);
+  const cookieResults = await Promise.all(accounts.map(acc => window.api.hasCookies(acc.id)));
 
   accounts.forEach((acc, i) => {
     const status = getLoginStatusDisplay(acc, cookieResults[i]);
-    const expiryText = getCookieExpiryDisplay(expiryMap[acc.id]);
     const tr = document.createElement('tr');
     tr.dataset.accountId = acc.id;
     tr.innerHTML = `
@@ -445,7 +426,6 @@ async function renderAccountsTable() {
         <button class="btn btn-sm btn-primary btn-login-test" data-id="${acc.id}">테스트</button>
         <span class="login-status" data-id="${acc.id}" style="color:${status.color}">${status.text}</span>
       </td>
-      <td><span class="cookie-expiry" data-id="${acc.id}">${expiryText}</span></td>
       <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
     `;
     tbody.appendChild(tr);
@@ -492,7 +472,6 @@ function appendAccountRow(acc, hasCookies) {
       <button class="btn btn-sm btn-primary btn-login-test" data-id="${acc.id}">테스트</button>
       <span class="login-status" data-id="${acc.id}" style="color:${status.color}">${status.text}</span>
     </td>
-    <td><span class="cookie-expiry" data-id="${acc.id}">쿠키 없음</span></td>
     <td><button class="btn btn-sm btn-danger btn-delete-account" data-id="${acc.id}">삭제</button></td>
   `;
   tbody.appendChild(tr);
@@ -588,19 +567,16 @@ function setupAddAccount() {
     setTimeout(() => { statusEl.textContent = ''; }, 5000);
   });
 
-  // 일괄 로그인 테스트 (filter에 해당하는 계정만) — 네 버튼 공유 러너
+  // 일괄 로그인 테스트 (filter에 해당하는 계정만) — 세 버튼 공유 러너
   // filterFn은 (account, ctx)를 받아 표시 상태와 동일한 기준으로 판단
-  // ctx: { hasCookies, expiry }
+  // ctx: { hasCookies }
   async function runBatchLoginTest(filterFn, clickedBtn, emptyMsg) {
-    const [cookieResults, expiryMap] = await Promise.all([
-      Promise.all(accounts.map(acc => window.api.hasCookies(acc.id))),
-      window.api.getCookieExpiry(),
-    ]);
+    const cookieResults = await Promise.all(accounts.map(acc => window.api.hasCookies(acc.id)));
     const targets = accounts.filter((a, i) =>
-      filterFn(a, { hasCookies: cookieResults[i], expiry: expiryMap[a.id] })
+      filterFn(a, { hasCookies: cookieResults[i] })
     );
     if (targets.length === 0) return showToast(emptyMsg);
-    const batchBtns = ['btn-login-untested', 'btn-login-failed', 'btn-login-expired', 'btn-login-all']
+    const batchBtns = ['btn-login-untested', 'btn-login-failed', 'btn-login-all']
       .map(id => document.getElementById(id)).filter(Boolean);
     const origLabel = clickedBtn.textContent;
     batchBtns.forEach(b => { b.disabled = true; });
@@ -625,13 +601,6 @@ function setupAddAccount() {
   );
   document.getElementById('btn-login-failed').addEventListener('click', (e) =>
     runBatchLoginTest(a => a.testStatus === 'fail', e.currentTarget, '실패한 계정이 없습니다.')
-  );
-  // 만료만 재테스트 — 카페쿠키 만료 또는 쿠키없음 계정
-  document.getElementById('btn-login-expired').addEventListener('click', (e) =>
-    runBatchLoginTest((a, ctx) => {
-      const s = ctx.expiry && ctx.expiry.status;
-      return s === 'expired' || s === 'no-cookie' || !s;
-    }, e.currentTarget, '만료/쿠키없음 계정이 없습니다.')
   );
 
   // 전체 계정 삭제
