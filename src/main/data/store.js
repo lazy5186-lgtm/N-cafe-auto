@@ -141,6 +141,128 @@ function saveGlobalManuscripts(data) {
   return writeJSON(getGlobalManuscriptsPath(), data);
 }
 
+// === 이미지 이식(portability) ===
+// 원고/프리셋은 이미지를 "외부 파일 경로"로만 참조한다. 그런데 사용자가 이미지를 보통
+// 다운로드/카카오톡 받은 파일 같은 임시 폴더에서 추가하기 때문에, 시간이 지나면
+// (Windows 저장소 센스가 다운로드 30일 자동 삭제 등) 원본이 사라져 프리셋을 불러와도
+// 이미지가 안 올라간다. → 이미지를 앱 소유 폴더로 복사/동봉해 self-contained로 만든다.
+
+function getPresetImagesDir() {
+  return path.join(getDataDir(), 'preset-images');
+}
+
+// manuscripts 배열의 모든 이미지 경로 필드(본문 세그먼트 + 댓글/대댓글 재귀)에 fn 적용 후 치환
+function forEachImageRef(manuscripts, fn) {
+  (manuscripts || []).forEach((m) => {
+    const segs = ((m.post || {}).bodySegments) || [];
+    segs.forEach((s) => {
+      if (s.type === 'image' && s.filePath) s.filePath = fn(s.filePath);
+    });
+    const walk = (arr) => (arr || []).forEach((c) => {
+      if (c.imagePath) c.imagePath = fn(c.imagePath);
+      walk(c.replies);
+    });
+    walk(m.comments);
+  });
+}
+
+// 외부 폴더의 이미지를 앱 소유 폴더(data/preset-images)로 복사하고 경로를 재작성.
+// payload({manuscripts, presets})를 제자리 수정하고 { 원본경로: 새경로 } 맵을 반환한다.
+// 원본이 이미 없으면(복구 불가) 경로 그대로 두고, 이미 앱 폴더 안이면 건너뛴다(idempotent).
+function localizeImages(payload, stamp) {
+  const baseDir = getPresetImagesDir();
+  const baseNorm = path.normalize(baseDir).toLowerCase();
+  const map = {};
+  let count = 0;
+  const localize = (p) => {
+    if (typeof p !== 'string' || !p || p.startsWith('embed://')) return p;
+    if (map[p]) return map[p];
+    try {
+      if (path.normalize(p).toLowerCase().startsWith(baseNorm)) return p; // 이미 앱 폴더
+      if (!fs.existsSync(p)) return p;                                     // 원본 없음 → 유지
+      ensureDir(baseDir);
+      const ext = path.extname(p) || '.img';
+      const safeBase = path.basename(p, ext).replace(/[^\w가-힣.-]/g, '_').slice(0, 40);
+      const dest = path.join(baseDir, `${stamp}-${count}-${safeBase}${ext}`);
+      fs.copyFileSync(p, dest);
+      map[p] = dest;
+      count++;
+      return dest;
+    } catch (e) {
+      return p;
+    }
+  };
+  const all = (payload.manuscripts || []).concat(
+    (payload.presets || []).flatMap((pr) => pr.manuscripts || [])
+  );
+  forEachImageRef(all, localize);
+  return map;
+}
+
+// 시작 시 마이그레이션 — 기존 원고/프리셋의 외부 이미지를 (아직 존재하는 동안) 앱 폴더로 복사.
+// 다운로드 폴더 등이 비워지기 전에 한 번이라도 실행되면 이미지가 영구 보존된다.
+function migrateLocalizeImages() {
+  try {
+    const data = loadGlobalManuscripts();
+    const map = localizeImages(data, Date.now());
+    if (Object.keys(map).length) {
+      saveGlobalManuscripts(data);
+      console.log(`[migrate] 외부 이미지 ${Object.keys(map).length}개를 앱 폴더로 복사(로컬화)`);
+    }
+  } catch (e) {
+    console.error('이미지 로컬화 마이그레이션 실패:', e.message);
+  }
+}
+
+// 내보내기: 이미지 파일을 읽어 base64로 담고, 경로 필드를 토큰(embed://...)으로 치환.
+// 다른 PC/사용자에게 프리셋·데이터를 넘겨도 이미지가 함께 가도록 한다. { images, embedded, missing } 반환.
+function embedImages(manuscripts) {
+  const images = {};
+  const seen = new Map();
+  const missing = [];
+  let counter = 0;
+  forEachImageRef(manuscripts, (p) => {
+    if (typeof p !== 'string' || !p) return p;
+    if (p.startsWith('embed://')) return p;
+    if (seen.has(p)) return seen.get(p);
+    try {
+      if (!fs.existsSync(p)) { missing.push(p); return p; }
+      const buf = fs.readFileSync(p);
+      const ext = path.extname(p).toLowerCase() || '.img';
+      const token = `embed://img-${counter++}${ext}`;
+      images[token] = buf.toString('base64');
+      seen.set(p, token);
+      return token;
+    } catch (e) {
+      missing.push(p);
+      return p;
+    }
+  });
+  return { images, embedded: Object.keys(images).length, missing };
+}
+
+// 불러오기: _images 토큰을 이 PC의 로컬 파일로 풀고 경로 필드를 로컬 절대경로로 치환. 복원 개수 반환.
+function materializeImages(manuscripts, images, stamp) {
+  if (!images || Object.keys(images).length === 0) return 0;
+  const importDir = path.join(getPresetImagesDir(), String(stamp));
+  ensureDir(importDir);
+  const written = new Map();
+  forEachImageRef(manuscripts, (p) => {
+    if (typeof p !== 'string' || !images[p]) return p;
+    if (written.has(p)) return written.get(p);
+    try {
+      const fileName = p.replace('embed://', '') || `img-${written.size}`;
+      const outPath = path.join(importDir, fileName);
+      fs.writeFileSync(outPath, Buffer.from(images[p], 'base64'));
+      written.set(p, outPath);
+      return outPath;
+    } catch (e) {
+      return p;
+    }
+  });
+  return written.size;
+}
+
 // === 데이터 마이그레이션 ===
 
 // V1: 분리된 manuscripts.json → accounts.json 통합
@@ -389,6 +511,7 @@ module.exports = {
   loadAccounts, saveAccounts, getAccount, addAccount, updateAccount, deleteAccount,
   loadSettings, saveSettings,
   loadGlobalManuscripts, saveGlobalManuscripts,
+  forEachImageRef, localizeImages, migrateLocalizeImages, embedImages, materializeImages,
   migrateData, migrateDataV2,
   saveCookies, loadCookies,
   saveExecutionLog, listExecutionLogs, loadExecutionLog, appendDailyLog,

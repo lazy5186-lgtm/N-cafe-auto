@@ -92,6 +92,8 @@ function setupAutoUpdater() {
 app.whenReady().then(() => {
   store.migrateData();
   store.migrateDataV2();
+  // 외부(다운로드/카톡 등) 이미지가 아직 남아있는 동안 앱 폴더로 복사해 영구 보존
+  store.migrateLocalizeImages();
   // 커스텀 닉네임 단어 로드
   const nickWords = store.loadNicknameWords();
   nicknameGenerator.setCustomWords(nickWords.adjectives, nickWords.nouns);

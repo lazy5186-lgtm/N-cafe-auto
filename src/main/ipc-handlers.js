@@ -163,8 +163,15 @@ function registerHandlers(mainWindow) {
   // === 원고 (글로벌) ===
   ipcMain.handle('manuscripts:load', () => store.loadGlobalManuscripts());
   ipcMain.handle('manuscripts:save', (_e, data) => {
+    // 외부(다운로드/카톡 등 임시) 폴더 이미지를 앱 폴더로 복사해 영구 보존 → 원본이 삭제돼도 유지
+    let pathMap = {};
+    try {
+      pathMap = store.localizeImages(data, Date.now());
+    } catch (e) {
+      console.error('이미지 로컬화 실패:', e.message);
+    }
     store.saveGlobalManuscripts(data);
-    return { success: true };
+    return { success: true, pathMap };
   });
 
   // === 가입 카페 목록 ===
@@ -643,14 +650,21 @@ function registerHandlers(mainWindow) {
       const msData = store.loadGlobalManuscripts();
       const nicknameWords = store.loadNicknameWords();
 
+      // 이미지를 base64로 동봉 → 다른 PC에서도 그대로 사용 가능 (원고 + 프리셋 내부 원고 모두)
+      const expManuscripts = JSON.parse(JSON.stringify(msData.manuscripts || []));
+      const expPresets = JSON.parse(JSON.stringify(msData.presets || []));
+      const combined = expManuscripts.concat(expPresets.flatMap((p) => p.manuscripts || []));
+      const { images, embedded, missing } = store.embedImages(combined);
+
       const exportData = {
         _type: 'NCafeAuto-Export',
         _version: app.getVersion(),
         _exportedAt: new Date().toISOString(),
+        _images: images,
         accounts,
         settings,
-        manuscripts: msData.manuscripts || [],
-        presets: msData.presets || [],
+        manuscripts: expManuscripts,
+        presets: expPresets,
         nicknameWords,
       };
 
@@ -660,9 +674,8 @@ function registerHandlers(mainWindow) {
       });
       if (!filePath) return { success: false, cancelled: true };
 
-      const fs = require('fs');
       fs.writeFileSync(filePath, JSON.stringify(exportData, null, 2), 'utf8');
-      return { success: true, filePath };
+      return { success: true, filePath, embedded, missing };
     } catch (e) {
       return { success: false, error: e.message };
     }
@@ -694,9 +707,14 @@ function registerHandlers(mainWindow) {
       }
       // 원고 + 프리셋
       if (data.manuscripts || data.presets) {
+        const impManuscripts = data.manuscripts || [];
+        const impPresets = data.presets || [];
+        // 동봉된 이미지(_images)를 이 PC의 로컬 폴더로 풀고 경로를 재연결 (원고 + 프리셋 내부 원고)
+        const combined = impManuscripts.concat(impPresets.flatMap((p) => p.manuscripts || []));
+        store.materializeImages(combined, data._images, Date.now());
         store.saveGlobalManuscripts({
-          manuscripts: data.manuscripts || [],
-          presets: data.presets || [],
+          manuscripts: impManuscripts,
+          presets: impPresets,
         });
       }
       // 닉네임 단어
@@ -834,16 +852,20 @@ function registerHandlers(mainWindow) {
       });
       if (!filePath) return { success: false, cancelled: true };
 
+      // 이미지를 절대경로 대신 base64로 동봉 → 다른 PC/사용자도 그대로 사용 가능
+      const exportManuscripts = JSON.parse(JSON.stringify(manuscripts || []));
+      const { images, embedded, missing } = store.embedImages(exportManuscripts);
+
       const exportData = {
         _type: 'NCafeAuto-Preset',
         _version: app.getVersion(),
         _exportedAt: new Date().toISOString(),
-        manuscripts,
+        _images: images,
+        manuscripts: exportManuscripts,
       };
 
-      const fs = require('fs');
       fs.writeFileSync(filePath, JSON.stringify(exportData, null, 2), 'utf8');
-      return { success: true, filePath };
+      return { success: true, filePath, embedded, missing };
     } catch (e) {
       return { success: false, error: e.message };
     }
@@ -872,7 +894,10 @@ function registerHandlers(mainWindow) {
         return { success: false, error: '프리셋에 원고가 없습니다.' };
       }
 
-      return { success: true, manuscripts: ms };
+      // 동봉된 이미지(_images)를 이 PC의 로컬 폴더로 풀고 경로를 재연결
+      const restored = store.materializeImages(ms, data._images, Date.now());
+
+      return { success: true, manuscripts: ms, restored };
     } catch (e) {
       return { success: false, error: e.message };
     }

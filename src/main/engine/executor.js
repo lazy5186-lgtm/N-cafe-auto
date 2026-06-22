@@ -212,7 +212,8 @@ class Executor extends EventEmitter {
 
         try {
           const postUrl = await postWriter.writePost(
-            page, ms.cafeId, ms.boardMenuId, (ms.post || {}).title, (ms.post || {}).bodySegments, ms.boardName, ms.visibility
+            page, ms.cafeId, ms.boardMenuId, (ms.post || {}).title, (ms.post || {}).bodySegments, ms.boardName, ms.visibility,
+            (msg) => this.log(msg)
           );
           resultEntry.postUrl = postUrl;
           resultEntry.status = 'success';

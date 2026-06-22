@@ -44,6 +44,16 @@ async function dumpDiagnosis(page, frame, label) {
  * label.button_file 클릭 → page.waitForFileChooser로 파일 선택
  */
 async function uploadFileToInput(page, frame, labelSelector, filePath) {
+  const resolved = path.resolve(filePath);
+  // OneDrive '온라인 전용' 자리표시자 대응 — 업로드 전에 실제 바이트를 읽어 강제 다운로드(hydrate)
+  try {
+    const stat = fs.statSync(resolved);
+    if (!stat.size) throw new Error('0바이트 파일 (OneDrive 온라인 전용 가능성)');
+    fs.readFileSync(resolved);
+  } catch (e) {
+    throw new Error(`이미지 읽기 실패 (OneDrive 동기화/권한 확인): ${resolved} — ${e.message}`);
+  }
+
   const label = await frame.$(labelSelector);
   if (!label) {
     throw new Error(`이미지 버튼을 찾을 수 없습니다: ${labelSelector}`);
@@ -56,7 +66,7 @@ async function uploadFileToInput(page, frame, labelSelector, filePath) {
       if (el) el.click();
     }, labelSelector),
   ]);
-  await fileChooser.accept([path.resolve(filePath)]);
+  await fileChooser.accept([resolved]);
 }
 
 async function navigateToArticle(page, articleUrl) {

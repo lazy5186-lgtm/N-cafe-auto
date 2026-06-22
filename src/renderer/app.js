@@ -1268,8 +1268,37 @@ async function fetchCafesForAccount(accountId) {
   }
 }
 
+// 메인이 외부 이미지를 앱 폴더로 복사하면서 돌려준 { 원본경로: 새경로 } 맵을
+// 화면 메모리(manuscripts/presets)에도 반영 → 같은 세션에서 경로 불일치 방지
+function applyImagePathMap(msArr, map) {
+  (msArr || []).forEach((m) => {
+    const segs = ((m.post || {}).bodySegments) || [];
+    segs.forEach((s) => {
+      if (s.type === 'image' && s.filePath && map[s.filePath]) s.filePath = map[s.filePath];
+    });
+    const walk = (arr) => (arr || []).forEach((c) => {
+      if (c.imagePath && map[c.imagePath]) c.imagePath = map[c.imagePath];
+      walk(c.replies);
+    });
+    walk(m.comments);
+  });
+}
+
 async function saveAllManuscripts() {
-  await window.api.saveManuscripts({ manuscripts, presets });
+  const res = await window.api.saveManuscripts({ manuscripts, presets });
+  if (res && res.pathMap && Object.keys(res.pathMap).length) {
+    applyImagePathMap(manuscripts, res.pathMap);
+    (presets || []).forEach((p) => applyImagePathMap(p.manuscripts || [], res.pathMap));
+    // 열려있는 에디터의 이미지 경로 표시도 새 경로로 갱신 →
+    // 다음 collectMsData가 옛 외부경로(삭제될 수 있는 다운로드 경로)를 다시 읽는 것 방지
+    document.querySelectorAll('.seg-image-path').forEach((span) => {
+      const cur = span.dataset.path;
+      if (cur && res.pathMap[cur]) {
+        span.dataset.path = res.pathMap[cur];
+        span.textContent = res.pathMap[cur];
+      }
+    });
+  }
 }
 
 function buildSingleManuscriptText(ms, index) {
@@ -1517,7 +1546,10 @@ function setupManuscriptsTab() {
     const result = await window.api.exportPresetJson({ manuscripts: snapshot, title });
     if (result.cancelled) return;
     if (result.success) {
-      showToast('프리셋 저장 완료');
+      let msg = '프리셋 저장 완료';
+      if (result.embedded) msg += ` (이미지 ${result.embedded}개 포함)`;
+      if (result.missing && result.missing.length) msg += ` · ⚠️ 이미지 ${result.missing.length}개 누락(파일 없음)`;
+      showToast(msg);
     } else {
       showToast('프리셋 저장 실패: ' + (result.error || '알 수 없는 오류'));
     }
@@ -1550,7 +1582,9 @@ async function loadPresetFromFile() {
 
   await saveAllManuscripts();
   renderMsList();
-  showToast(`프리셋 원고 ${loaded.length}개 추가됨`);
+  let msg = `프리셋 원고 ${loaded.length}개 추가됨`;
+  if (result.restored) msg += ` (이미지 ${result.restored}개 복원)`;
+  showToast(msg);
   window.focus();
 }
 
@@ -1594,7 +1628,10 @@ function setupPresets() {
     const result = await window.api.exportPresetJson({ manuscripts: snapshot, title });
     if (result.cancelled) return;
     if (result.success) {
-      showToast(`전체 프리셋 저장 완료 (${snapshot.length}개 원고)`);
+      let msg = `전체 프리셋 저장 완료 (${snapshot.length}개 원고)`;
+      if (result.embedded) msg += ` · 이미지 ${result.embedded}개 포함`;
+      if (result.missing && result.missing.length) msg += ` · ⚠️ ${result.missing.length}개 누락`;
+      showToast(msg);
     } else {
       showToast('전체 프리셋 저장 실패: ' + (result.error || '알 수 없는 오류'));
     }

@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.1
+- **Current version**: 1.8.2
 
 ## Architecture
 
@@ -60,7 +60,13 @@ There are no tests or linting configured.
 - All persistence is JSON files in `data/` directory (no database)
 - In dev: `data/` at project root. In production: `app.getPath('userData')/data` (user's AppData folder)
 - Files: `accounts.json`, `settings.json`, `global-manuscripts.json`, `delete-schedule.json`, `nickname-words.json`
-- Subdirectories: `cookies/`, `crawl-cache/`, `logs/`
+- Subdirectories: `cookies/`, `crawl-cache/`, `logs/`, `preset-images/`
+- **Image portability** (v1.8.2): manuscript/preset images referenced external paths (Downloads/KakaoTalk), which Windows Storage Sense deletes after ~30 days → presets lost images. Now images are made self-contained:
+  - `localizeImages(payload, stamp)` — copies external image files into `preset-images/` and rewrites paths (idempotent: skips paths already in app folder or missing). Called on every `manuscripts:save` (returns `{oldPath: newPath}` map so renderer + editor DOM stay in sync).
+  - `migrateLocalizeImages()` — startup rescue: localizes existing data while originals still exist (run in `index.js` after V1/V2 migrations).
+  - `embedImages(manuscripts)` / `materializeImages(manuscripts, images, stamp)` — for cross-PC sharing: export embeds image bytes as base64 in `_images`; import writes them to `preset-images/` and rewrites paths. Used by `data:export`/`data:import` and `data:export-preset-json`/`data:import-preset-json`.
+  - `forEachImageRef(manuscripts, fn)` — walks all image refs (`post.bodySegments[].filePath` + `comments/replies[].imagePath` recursively).
+  - **Limitation**: if the original was already deleted before v1.8.2 ran, the image is unrecoverable (must re-add once).
 
 ### Renderer Process (`src/renderer/`)
 - `index.html` — Single-page UI with 5 global tabs (설정/원고/실행/삭제/좋아요) + 단축키. Manuscript editor includes per-manuscript `예약 발행` datetime input.

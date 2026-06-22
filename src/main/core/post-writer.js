@@ -32,14 +32,34 @@ async function navigateToWritePage(page, cafeId, menuId) {
   await delay(2000);
 }
 
-async function uploadImage(page, filePath) {
-  if (!filePath || !fs.existsSync(filePath)) {
-    console.log('이미지 파일 없음:', filePath);
+// OneDrive '파일 주문형(온라인 전용)' 대응 — 업로드 전에 실제 바이트를 읽어 강제 다운로드(hydrate)
+// 자리표시자(0바이트/읽기 실패)면 Chrome 업로드가 조용히 실패하므로 미리 걸러서 알림
+function ensureLocalFile(filePath, log) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.size) {
+      log(`⚠️ 이미지가 0바이트입니다 (OneDrive 온라인 전용 가능성 — '항상 이 장치에 유지'로 변경 필요): ${filePath}`);
+      return false;
+    }
+    // 온라인 전용 파일이면 이 읽기에서 OneDrive가 로컬로 내려받음(hydrate)
+    fs.readFileSync(filePath);
+    return true;
+  } catch (e) {
+    log(`⚠️ 이미지 읽기 실패 (OneDrive 동기화/권한 확인 필요): ${filePath} — ${e.message}`);
     return false;
   }
+}
+
+async function uploadImage(page, filePath, log = console.log) {
+  if (!filePath || !fs.existsSync(filePath)) {
+    log(`⚠️ 이미지 파일 없음: ${filePath}`);
+    return false;
+  }
+  // OneDrive 자리표시자/읽기 불가 파일을 미리 걸러서 조용한 실패 방지
+  if (!ensureLocalFile(filePath, log)) return false;
 
   try {
-    console.log('이미지 업로드 시도:', filePath);
+    log(`이미지 업로드 시도: ${filePath}`);
     // input[type="file"]에 직접 업로드 (헤드리스 호환)
     const fileInput = await page.$('.se-image-toolbar-button input[type="file"], input[type="file"][accept*="image"]');
     if (fileInput) {
@@ -48,7 +68,7 @@ async function uploadImage(page, filePath) {
         const input = document.querySelector('.se-image-toolbar-button input[type="file"], input[type="file"][accept*="image"]');
         if (input) input.dispatchEvent(new Event('change', { bubbles: true }));
       });
-      console.log('이미지 업로드 완료 (uploadFile)');
+      log('이미지 업로드 완료 (uploadFile)');
       await delay(4000);
       return true;
     }
@@ -58,11 +78,11 @@ async function uploadImage(page, filePath) {
       page.click('button.se-image-toolbar-button'),
     ]);
     await fileChooser.accept([filePath]);
-    console.log('이미지 업로드 완료 (fileChooser)');
+    log('이미지 업로드 완료 (fileChooser)');
     await delay(4000);
     return true;
   } catch (e) {
-    console.error('이미지 업로드 실패:', e.message);
+    log(`❌ 이미지 업로드 실패: ${filePath} — ${e.message}`);
     return false;
   }
 }
@@ -367,7 +387,7 @@ async function selectBoard(page, menuId, boardName) {
   }
 }
 
-async function writePost(page, cafeId, menuId, title, bodySegments, boardName, visibility) {
+async function writePost(page, cafeId, menuId, title, bodySegments, boardName, visibility, log = console.log) {
   await navigateToWritePage(page, cafeId, menuId);
 
   // === 1. 게시판 선택 (안내 문구/양식 로드) ===
@@ -413,6 +433,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
 
   // === 3. 본문 작성 ===
   // text/image 세그먼트가 임의 개수, 임의 순서로 섞여도 동작하도록 각 세그먼트를 독립 처리
+  const failedImages = [];
   for (let si = 0; si < bodySegments.length; si++) {
     const segment = bodySegments[si];
     try {
@@ -420,7 +441,8 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
         await typeTextInEditor(page, segment.content);
         await delay(500);
       } else if (segment.type === 'image') {
-        const uploaded = await uploadImage(page, segment.filePath);
+        const uploaded = await uploadImage(page, segment.filePath, log);
+        if (!uploaded) failedImages.push(segment.filePath || '(경로 없음)');
 
         // 이미지 선택 모드 해제
         await page.keyboard.press('Escape');
@@ -448,12 +470,17 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
           await delay(300);
         }
 
-        console.log(`[세그먼트 ${si}] 이미지 ${uploaded ? '업로드 완료' : '업로드 실패'}`);
+        log(`[세그먼트 ${si}] 이미지 ${uploaded ? '업로드 완료' : '업로드 실패'}`);
       }
     } catch (e) {
       // 한 세그먼트 실패가 전체 포스트를 중단시키지 않도록 격리
       console.error(`[세그먼트 ${si} (${segment.type})] 처리 중 오류:`, e.message);
+      if (segment.type === 'image') failedImages.push(segment.filePath || '(경로 없음)');
     }
+  }
+
+  if (failedImages.length) {
+    log(`⚠️ 이미지 ${failedImages.length}개 업로드 실패 — 글은 이미지 없이 등록됩니다: ${failedImages.join(', ')}`);
   }
 
   await delay(2000);

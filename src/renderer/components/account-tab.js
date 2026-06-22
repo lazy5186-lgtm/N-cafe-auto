@@ -13,6 +13,16 @@ function isImageFile(file) {
   return DROP_IMAGE_EXTS.has(ext);
 }
 
+// innerHTML로 경로를 삽입할 때 안전하게 escape — 경로에 & " < > 가 있으면
+// 저장→재로딩 시 data-path가 깨져서(예: &copy → ©) 이미지가 사라지는 버그 방지
+function escAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function getDroppedImagePaths(e) {
   const files = (e.dataTransfer && e.dataTransfer.files) ? Array.from(e.dataTransfer.files) : [];
   if (files.length === 0) return [];
@@ -194,7 +204,7 @@ const MsHelpers = {
       <div class="seg-image-drop-area">
         <input type="file" class="seg-image-file-input" accept="image/*" title="이미지 파일을 여기로 드래그하거나 클릭하세요">
         <div class="seg-image-drop-hint">
-          <span class="seg-image-path" data-path="${filePath || ''}">${filePath || '📁 이미지를 여기로 드래그하거나 클릭해서 선택'}</span>
+          <span class="seg-image-path" data-path="${escAttr(filePath)}">${filePath ? escAttr(filePath) : '📁 이미지를 여기로 드래그하거나 클릭해서 선택'}</span>
         </div>
       </div>
     `;
@@ -291,7 +301,7 @@ const MsHelpers = {
           <input type="checkbox" class="ms-cmt-random-nick" ${cmt.randomNickname ? 'checked' : ''}> 랜덤닉
         </label>
         <input type="text" class="input ms-cmt-custom-nick" placeholder="닉네임" value="${cmt.nickname || ''}" style="width:100px; font-size:11px; padding:2px 6px;${cmt.randomNickname ? ' opacity:0.4;' : ''}" ${cmt.randomNickname ? 'disabled' : ''}>
-        <span class="seg-image-path ms-cmt-image-path" data-path="${cmt.imagePath || ''}" style="font-size:11px; flex:1;">${cmt.imagePath || '이미지 없음'}</span>
+        <span class="seg-image-path ms-cmt-image-path" data-path="${escAttr(cmt.imagePath)}" style="font-size:11px; flex:1;">${cmt.imagePath ? escAttr(cmt.imagePath) : '이미지 없음'}</span>
         <button class="btn btn-sm btn-secondary btn-ms-cmt-img">이미지</button>
         <button class="btn-cmt-delete" title="삭제">&#10005;</button>
       </div>
@@ -384,7 +394,7 @@ const MsHelpers = {
           <input type="checkbox" class="ms-reply-random-nick" ${reply.randomNickname ? 'checked' : ''}> 랜덤닉
         </label>
         <input type="text" class="input ms-reply-custom-nick" placeholder="닉네임" value="${reply.nickname || ''}" style="width:90px; font-size:11px; padding:2px 6px;${reply.randomNickname ? ' opacity:0.4;' : ''}" ${reply.randomNickname ? 'disabled' : ''}>
-        <span class="seg-image-path ms-reply-image-path" data-path="${reply.imagePath || ''}" style="font-size:11px; flex:1;">${reply.imagePath || '이미지 없음'}</span>
+        <span class="seg-image-path ms-reply-image-path" data-path="${escAttr(reply.imagePath)}" style="font-size:11px; flex:1;">${reply.imagePath ? escAttr(reply.imagePath) : '이미지 없음'}</span>
         <button class="btn btn-sm btn-secondary btn-ms-reply-img" style="font-size:11px;">이미지</button>
         <button class="btn-reply-delete" title="삭제">&#10005;</button>
       </div>
