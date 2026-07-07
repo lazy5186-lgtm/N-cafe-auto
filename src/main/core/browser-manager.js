@@ -55,20 +55,31 @@ async function launchBrowser(chromePath) {
     headless = settings.headless || false;
   } catch (e) { /* ignore */ }
 
+  const args = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-infobars',
+    '--disable-automation',
+    '--disable-blink-features=AutomationControlled',
+    '--ignore-certificate-errors',
+  ];
+
+  if (headless) {
+    // 헤드리스일 땐 창 생성 플래그(--start-maximized)를 넣지 않는다.
+    // 일부 Windows/Chrome 조합에서 신형 헤드리스(--headless=new)가
+    // --start-maximized 를 처리해 빈 흰색 창을 띄우는 문제가 있음.
+    // 만약 창이 생겨도 안 보이도록 화면 밖에 배치하고, GPU 렌더 이슈를 회피한다.
+    args.push('--window-size=1920,1080', '--window-position=-2400,-2400', '--disable-gpu');
+  } else {
+    args.push('--start-maximized');
+  }
+
   const browser = await puppeteer.launch({
     executablePath: execPath,
-    headless: headless ? 'new' : false,
+    headless: headless ? true : false,
     ignoreHTTPSErrors: true,
     defaultViewport: null,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-infobars',
-      '--disable-automation',
-      '--disable-blink-features=AutomationControlled',
-      '--ignore-certificate-errors',
-      '--start-maximized',
-    ],
+    args,
   });
 
   return browser;

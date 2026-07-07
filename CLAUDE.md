@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.2
+- **Current version**: 1.8.3
 
 ## Architecture
 
@@ -97,7 +97,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 - **Browser automation** uses puppeteer-core with local Chrome installation (not bundled Chromium)
 - **Browser isolation**: New browser launched on every account switch — fresh cookie/cache state per account
 - **Random fingerprint**: 6 User-Agents (Chrome/Firefox/Edge) × 6 viewports — selected randomly per session via `setupPage({ randomFingerprint: true })`
-- **Headless mode**: `browser-manager.js` reads `settings.headless` internally — all `launchBrowser()` callers auto-apply
+- **Headless mode**: `browser-manager.js` reads `settings.headless` internally — all `launchBrowser()` callers auto-apply. Uses `headless: true` (v22 → `--headless=new`). **`--start-maximized` is applied ONLY in headed mode** — in modern Chrome's new-headless (post ~Chrome 132, old headless removed) window-creation flags are honored and `--start-maximized` spawns a blank white window; headless instead uses `--window-size=1920,1080 --window-position=-2400,-2400 --disable-gpu` (v1.8.3 fix)
 - **API-first crawling**: Board list via `SideMenuList` API with 3 fallbacks (SPA, old frames, write page dropdown), cafe list via `cafe-home/v1/cafes/join` API
 - **Board filtering**: Exclude separator (type=S), folder (type=F), non-numeric menuId, and menuId ≤ 0; deduplicate by menuId
 - **IP change on all operations**: login test, cafe/board crawling, like fetch, execution, delete — all respect IP change setting
