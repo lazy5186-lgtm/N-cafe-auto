@@ -82,7 +82,47 @@ async function launchBrowser(chromePath) {
     args,
   });
 
+  // 헤드리스인데도 창이 화면에 뜨는 문제 방지 (v1.8.4).
+  // 신형 헤드리스(--headless=new)는 일부 Chrome 빌드에서 창을 실제로 그리는데,
+  // --window-position 런치 플래그는 puppeteer가 만든 "메인 창"에만 적용되고
+  // 사이트가 window.open 으로 여는 팝업(예: 네이버 새 기기/캡차 인증 창)에는
+  // 상속되지 않아 화면 안에 흰 창으로 뜬다. 그래서 새로 생기는 모든 page 타겟의
+  // 창을 CDP(Browser.setWindowBounds)로 화면 밖으로 강제 이동한다.
+  if (headless) {
+    await hideBrowserWindows(browser);
+  }
+
   return browser;
+}
+
+async function moveWindowOffscreen(page) {
+  try {
+    const session = await page.createCDPSession();
+    const { windowId } = await session.send('Browser.getWindowForTarget');
+    await session.send('Browser.setWindowBounds', {
+      windowId,
+      bounds: { left: -2400, top: -2400, width: 1920, height: 1080, windowState: 'normal' },
+    });
+    await session.detach().catch(() => {});
+  } catch (_) {
+    // CDP 미지원/이미 닫힌 창 등은 무시
+  }
+}
+
+async function hideBrowserWindows(browser) {
+  // 이미 열려 있는 페이지 처리
+  try {
+    const pages = await browser.pages();
+    for (const p of pages) await moveWindowOffscreen(p);
+  } catch (_) { /* ignore */ }
+  // 이후 생기는 팝업/새 탭 처리
+  browser.on('targetcreated', async (target) => {
+    if (target.type() !== 'page') return;
+    try {
+      const p = await target.page();
+      if (p) await moveWindowOffscreen(p);
+    } catch (_) { /* ignore */ }
+  });
 }
 
 async function setupPage(page, options) {

@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.3
+- **Current version**: 1.8.4
 
 ## Architecture
 
@@ -97,7 +97,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 - **Browser automation** uses puppeteer-core with local Chrome installation (not bundled Chromium)
 - **Browser isolation**: New browser launched on every account switch — fresh cookie/cache state per account
 - **Random fingerprint**: 6 User-Agents (Chrome/Firefox/Edge) × 6 viewports — selected randomly per session via `setupPage({ randomFingerprint: true })`
-- **Headless mode**: `browser-manager.js` reads `settings.headless` internally — all `launchBrowser()` callers auto-apply. Uses `headless: true` (v22 → `--headless=new`). **`--start-maximized` is applied ONLY in headed mode** — in modern Chrome's new-headless (post ~Chrome 132, old headless removed) window-creation flags are honored and `--start-maximized` spawns a blank white window; headless instead uses `--window-size=1920,1080 --window-position=-2400,-2400 --disable-gpu` (v1.8.3 fix)
+- **Headless mode**: `browser-manager.js` reads `settings.headless` internally — all `launchBrowser()` callers auto-apply. Uses `headless: true` (v22 → `--headless=new`). **`--start-maximized` is applied ONLY in headed mode** — in modern Chrome's new-headless (post ~Chrome 132, old headless removed) window-creation flags are honored and `--start-maximized` spawns a blank white window; headless instead uses `--window-size=1920,1080 --window-position=-2400,-2400 --disable-gpu` (v1.8.3 fix). **Popup windows** opened by the site (`window.open`, e.g. Naver new-device/captcha login verification) do NOT inherit `--window-position` and appear on-screen as blank white windows; v1.8.4 fix: `hideBrowserWindows()` attaches a `targetcreated` listener that moves every new page window off-screen via CDP `Browser.setWindowBounds` (headless only)
 - **API-first crawling**: Board list via `SideMenuList` API with 3 fallbacks (SPA, old frames, write page dropdown), cafe list via `cafe-home/v1/cafes/join` API
 - **Board filtering**: Exclude separator (type=S), folder (type=F), non-numeric menuId, and menuId ≤ 0; deduplicate by menuId
 - **IP change on all operations**: login test, cafe/board crawling, like fetch, execution, delete — all respect IP change setting
@@ -227,7 +227,8 @@ Three fallback strategies with deduplication:
 ## Naver Cafe Technical Notes
 
 - Delete button is inside iframe — must search `[page, ...page.frames()]`
-- Delete confirm is browser native `confirm()`, not HTML popup
+- **Comment 삭제 vs article 삭제** (v1.8.4): an article page has a '삭제' button per comment too, so a naive "click first element with text 삭제" can hit a comment's delete on posts that have comments (typically OLDER posts) → article survives while comment-less (newer) posts delete fine — the classic "same account/board, only the older post isn't deleted" symptom. `clickDeleteButton` now: (1) tries explicit article-bottom selectors (`.ArticleBottomBtns` etc.), (2) a 수정+삭제-pair action-bar heuristic, (3) first non-comment 삭제 — all **excluding comment containers** (`.CommentItem`,`[class*="Comment"]`,`.u_cbox`…). Returns `{frame, how}`; `how==='first-non-comment'` recurring ⇒ article-bottom selector broke (Naver markup change) and needs updating.
+- Delete confirm was browser native `confirm()`; Naver has been migrating some flows to an in-page **layer popup (modal)**. `deletePost` (v1.8.4) clicks the delete button (with 1 retry for late iframe load), auto-accepts native `confirm()` via the `dialog` handler, AND clicks a layer-popup 삭제/확인 button as fallback, then **verifies actual deletion** via `checkPostState()` (re-opens the URL) returning `deleted`/`exists`/`login`. Verification signals, in priority order: (1) captured native-alert message matches `GONE_RE` (visiting a deleted post fires `alert("삭제되었거나 없는 게시글입니다")` which the dialog handler swallows — so messages are captured, not just accepted); (2) login-page/`#id#pw` form ⇒ `login` (session expired mid-batch → must NOT be read as deleted); (3) DOM: gone-message / 삭제-button / body-container. Previously `deletePost` returned `true` on button-click alone → undeleted posts (and session-expiry) were mis-logged as "삭제 완료". Now throws `삭제 확인 실패 …` (still present) or `세션 만료로 삭제 확인 불가 …`.
 - Puppeteer uses `page.off()` not `page.removeListener()`
 - Wrap `dialog.accept()` in try-catch (already-handled error possible)
 - Electron `prompt()` always returns null — use `confirm()` or avoid
