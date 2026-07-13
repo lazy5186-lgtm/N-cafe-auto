@@ -96,6 +96,9 @@ function registerHandlers(mainWindow) {
     try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); } catch (e) { /* ignore */ }
   }
 
+  // 브라우저 진단 로그(헤드리스 실제 적용 여부, 팝업 창 등)를 실행 로그로 흘려보낸다
+  const browserLog = (msg) => safeSend('execution:log', { msg });
+
   // IP 변경 헬퍼 (상태를 renderer로 전송)
   async function changeIPWithStatus(label) {
     const s = store.loadSettings();
@@ -119,7 +122,7 @@ function registerHandlers(mainWindow) {
     try {
       await changeIPWithStatus(`로그인 테스트 (${accountId})`);
 
-      browser = await browserManager.launchBrowser();
+      browser = await browserManager.launchBrowser(null, { log: browserLog });
       const page = await browserManager.createPage(browser, { randomFingerprint: true });
       const result = await auth.loginAccount(page, account.id, account.password);
       if (result.success) {
@@ -199,7 +202,7 @@ function registerHandlers(mainWindow) {
       const cookies = store.loadCookies(targetAccountId);
       if (!cookies) return { success: false, error: `${targetAccountId} 계정의 쿠키가 없습니다. 먼저 로그인 테스트를 실행하세요.` };
 
-      browser = await browserManager.launchBrowser();
+      browser = await browserManager.launchBrowser(null, { log: browserLog });
       const page = await browserManager.createPage(browser);
       await page.setCookie(...cookies);
 
@@ -284,7 +287,7 @@ function registerHandlers(mainWindow) {
         // 계정마다 새 브라우저
         let browser = null;
         try {
-          browser = await browserManager.launchBrowser();
+          browser = await browserManager.launchBrowser(null, { log: browserLog });
           const page = await browserManager.createPage(browser, { randomFingerprint: true });
 
           const loginResult = await auth.loginAccount(page, account.id, account.password);
@@ -433,7 +436,7 @@ function registerHandlers(mainWindow) {
 
       let browser = null;
       try {
-        browser = await browserManager.launchBrowser();
+        browser = await browserManager.launchBrowser(null, { log: browserLog });
         const page = await browserManager.createPage(browser, { randomFingerprint: true });
         console.log(`${accountId} 쿠키 없음, 직접 로그인 시도...`);
         const loginResult = await auth.loginAccount(page, account.id, account.password);
@@ -467,7 +470,7 @@ function registerHandlers(mainWindow) {
 
     let browser = null;
     try {
-      browser = await browserManager.launchBrowser();
+      browser = await browserManager.launchBrowser(null, { log: browserLog });
       const page = await browserManager.createPage(browser, { randomFingerprint: true });
       await page.setCookie(...cookies);
 
@@ -576,7 +579,7 @@ function registerHandlers(mainWindow) {
           // 계정마다 새 브라우저 (랜덤 UA + 랜덤 해상도)
           let browser = null;
           try {
-            browser = await browserManager.launchBrowser();
+            browser = await browserManager.launchBrowser(null, { log: browserLog });
             const page = await browserManager.createPage(browser, { randomFingerprint: true });
 
             // 로그인

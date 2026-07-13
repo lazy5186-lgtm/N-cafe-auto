@@ -1,9 +1,13 @@
 const { delay } = require('./browser-manager');
 const store = require('../data/store');
 
+// 네이버 메인은 광고/트래킹 요청이 끊이지 않아 networkidle0(연결 0개 500ms)에 도달하지
+// 못하는 경우가 많다. 그러면 30초를 헛되이 기다린 뒤 타임아웃 → "로그인 실패"로 잘못 판정되고,
+// 화면엔 빈 페이지만 떠 있게 된다. 로그인 여부는 DOM만 있으면 판별되므로 domcontentloaded 로 충분하다.
 async function checkLoginStatus(page) {
   try {
-    await page.goto('https://www.naver.com', { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.goto('https://www.naver.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await delay(1500);
     const loginButton = await page.$('.MyView-module__my_login___tOTgr');
     return !loginButton;
   } catch (e) {
@@ -14,7 +18,8 @@ async function checkLoginStatus(page) {
 
 async function performLogin(page, userId, userPw) {
   try {
-    await page.goto('https://nid.naver.com/nidlogin.login', { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.goto('https://nid.naver.com/nidlogin.login', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForSelector('#id', { timeout: 15000 });
     await delay(1000);
 
     await page.evaluate((id, pw) => {
@@ -37,7 +42,7 @@ async function performLogin(page, userId, userPw) {
     await page.click('.btn_login');
     await delay(3000);
 
-    await page.goto('https://www.naver.com', { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.goto('https://www.naver.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await delay(2000);
 
     return true;

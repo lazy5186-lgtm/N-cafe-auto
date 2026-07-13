@@ -2,34 +2,38 @@ const path = require('path');
 const fs = require('fs');
 const { delay } = require('./browser-manager');
 
-async function navigateToWritePage(page, cafeId, menuId) {
+async function navigateToWritePage(page, cafeId, menuId, log = console.log) {
   const writeUrl = `https://cafe.naver.com/ca-fe/cafes/${cafeId}/articles/write?boardType=L`;
-  let success = false;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
+    log(`글쓰기 페이지 접속 중... (${attempt}/3)`);
+    let navError = null;
     try {
       await page.goto(writeUrl, { waitUntil: 'networkidle0', timeout: 30000 });
-      if (page.url().includes('articles/write')) {
-        success = true;
-        break;
-      }
-      console.log(`글쓰기 페이지 접속 실패, 재시도 (${attempt}/3)...`);
-      await delay(3000);
     } catch (e) {
-      console.log(`글쓰기 페이지 접속 에러 (${attempt}/3):`, e.message);
-      if (attempt < 3) await delay(3000);
+      // 네이버 글쓰기 페이지는 백그라운드 요청이 끊이지 않아 networkidle0 에 도달하지
+      // 못하는 경우가 있다. 그렇다고 페이지가 못 쓸 상태인 건 아니므로 여기서 포기하지 않고,
+      // 아래에서 "에디터가 실제로 떴는가"로 판단한다 (예전엔 이 타임아웃만으로 실패 처리했다).
+      navError = e.message;
     }
+
+    if (page.url().includes('articles/write')) {
+      try {
+        await page.waitForSelector('.se-component-content', { timeout: 30000 });
+        if (navError) log(`페이지 로딩이 끝나지 않았지만 에디터가 떠서 계속 진행합니다 (${navError})`);
+        log('에디터 로드 완료');
+        await delay(2000);
+        return;
+      } catch (_) {
+        log(`에디터가 뜨지 않음 — 재시도 (${attempt}/3)`);
+      }
+    } else {
+      log(`글쓰기 페이지 접속 실패 — 재시도 (${attempt}/3)${navError ? ` — ${navError}` : ''}`);
+    }
+    if (attempt < 3) await delay(3000);
   }
 
-  if (!success) throw new Error('글쓰기 페이지 접속 실패');
-
-  try {
-    await page.waitForSelector('.se-component-content', { timeout: 30000 });
-    console.log('에디터 로드 완료');
-  } catch (e) {
-    throw new Error('에디터 로드 실패');
-  }
-  await delay(2000);
+  throw new Error('글쓰기 페이지 접속 실패 (에디터가 뜨지 않음)');
 }
 
 // OneDrive '파일 주문형(온라인 전용)' 대응 — 업로드 전에 실제 바이트를 읽어 강제 다운로드(hydrate)
@@ -388,9 +392,10 @@ async function selectBoard(page, menuId, boardName) {
 }
 
 async function writePost(page, cafeId, menuId, title, bodySegments, boardName, visibility, log = console.log) {
-  await navigateToWritePage(page, cafeId, menuId);
+  await navigateToWritePage(page, cafeId, menuId, log);
 
   // === 1. 게시판 선택 (안내 문구/양식 로드) ===
+  log(`게시판 선택: ${boardName || menuId}`);
   const boardSelected = await selectBoard(page, menuId, boardName);
   if (!boardSelected) {
     throw new Error(`게시판 선택 실패: ${boardName || menuId}`);
@@ -486,7 +491,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   await delay(2000);
 
   // === 4. 제목 입력 ===
-  console.log('제목 입력 중...');
+  log('제목 입력 중...');
   await page.waitForSelector('.textarea_input', { timeout: 10000 });
 
   // 이미지 업로드/에디터 조작 과정에서 iframe이 focus를 잡고 있을 수 있음 → 명시적으로 해제
@@ -561,7 +566,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   }
 
   // === 6. 등록 버튼 클릭 ===
-  console.log('등록 버튼 클릭...');
+  log('등록 버튼 클릭 — 등록 완료 대기 중...');
   await page.waitForSelector('.BaseButton--skinGreen', { timeout: 10000 });
   const writeButton = await page.$('.BaseButton--skinGreen');
   if (!writeButton) throw new Error('등록 버튼을 찾을 수 없습니다');
@@ -598,7 +603,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     }
 
     // "등록 중입니다" 로딩 상태 → 버튼 재클릭 없이 네비게이션만 대기
-    console.log('"등록 중" 상태 감지, 추가 대기 중... (최대 30초)');
+    log('"등록 중" 상태 감지 — 추가 대기 중 (최대 30초)');
     try {
       await page.waitForNavigation({ timeout: 30000 });
     } catch (e) {

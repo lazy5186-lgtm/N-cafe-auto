@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.4
+- **Current version**: 1.8.5
 
 ## Architecture
 
@@ -97,7 +97,12 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 - **Browser automation** uses puppeteer-core with local Chrome installation (not bundled Chromium)
 - **Browser isolation**: New browser launched on every account switch — fresh cookie/cache state per account
 - **Random fingerprint**: 6 User-Agents (Chrome/Firefox/Edge) × 6 viewports — selected randomly per session via `setupPage({ randomFingerprint: true })`
-- **Headless mode**: `browser-manager.js` reads `settings.headless` internally — all `launchBrowser()` callers auto-apply. Uses `headless: true` (v22 → `--headless=new`). **`--start-maximized` is applied ONLY in headed mode** — in modern Chrome's new-headless (post ~Chrome 132, old headless removed) window-creation flags are honored and `--start-maximized` spawns a blank white window; headless instead uses `--window-size=1920,1080 --window-position=-2400,-2400 --disable-gpu` (v1.8.3 fix). **Popup windows** opened by the site (`window.open`, e.g. Naver new-device/captcha login verification) do NOT inherit `--window-position` and appear on-screen as blank white windows; v1.8.4 fix: `hideBrowserWindows()` attaches a `targetcreated` listener that moves every new page window off-screen via CDP `Browser.setWindowBounds` (headless only)
+- **Headless mode**: `browser-manager.js` reads `settings.headless` internally — all `launchBrowser()` callers auto-apply. Uses `headless: true` (v22 → `--headless=new`). **`--start-maximized` is applied ONLY in headed mode** (puppeteer #13145: `--start-maximized` + headless spawned a blank white window on some Chrome builds — v1.8.3 fix); headless instead uses `--window-size=1920,1080 --window-position=-32000,-32000 --disable-gpu`. Popup windows opened by the site (`window.open`, e.g. Naver new-device/captcha verification) do NOT inherit `--window-position`, so `hideBrowserWindows()` also moves every new page target off-screen via CDP `Browser.setWindowBounds` on `targetcreated` (v1.8.4).
+- **Headless verification + forced hide** (v1.8.5): a *visible* Chrome window means Chrome did **not** actually go headless — verified empirically: on Chrome 150 a real headless browser draws **zero** visible OS windows regardless of flags (even the old `--start-maximized`). So `launchBrowser()` now verifies the real mode after launch and logs it to the execution log: `[브라우저] Chrome <ver> · 헤드리스 설정=ON/OFF · 실제=헤드리스/일반 창`.
+  - **Detection**: `browser.userAgent()` (→ `HeadlessChrome/x`) — `browser.version()` returns `Chrome/x` in BOTH modes and cannot be used.
+  - **If headless was requested but Chrome ignored it**: warn, then hide every visible window of that Chrome PID via Win32 `ShowWindow(SW_HIDE)` (inline PowerShell `-EncodedCommand`, `windowsHide: true`) — on launch, on `targetcreated`, and every 5s (Chrome re-shows a hidden window when a new tab/popup opens). Automation keeps working while hidden (verified). PowerShell is spawned **only** in this abnormal case.
+  - Store read failure no longer silently falls back to headed — it logs a warning (previously a broken settings read silently produced a visible window with no clue why).
+  - Popup/new-window URLs are logged (`[브라우저] 새 창/팝업: <url>`), so a mystery white window can be identified from the log. Tabs opened by `createPage()` itself are excluded from that log.
 - **API-first crawling**: Board list via `SideMenuList` API with 3 fallbacks (SPA, old frames, write page dropdown), cafe list via `cafe-home/v1/cafes/join` API
 - **Board filtering**: Exclude separator (type=S), folder (type=F), non-numeric menuId, and menuId ≤ 0; deduplicate by menuId
 - **IP change on all operations**: login test, cafe/board crawling, like fetch, execution, delete — all respect IP change setting
@@ -155,7 +160,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 
 ## Post Writing Flow
 
-1. Navigate to write page (without menuId in URL), retry up to 3 times
+1. Navigate to write page (without menuId in URL), retry up to 3 times — readiness = editor selector appears, NOT `networkidle0` (v1.8.5)
 2. **Select board** via dropdown (`selectBoard()`) — name match → data-value match → first board fallback
 3. **Detect template** via `waitForFunction`: `.se-module.se-module-text:not(.se-is-empty)` (timeout 10s)
 4. If template exists: **Enter×2** (SmartEditor auto-positions cursor at end of guidance)
@@ -240,7 +245,10 @@ Three fallback strategies with deduplication:
 - `CafeMemberNetworkArticleListV3` response uses `articleid` (lowercase), not `articleId` (camelCase)
 - Board article list API has TWO response structures: nested and flat
 - Board template loads after board **dropdown selection**, NOT from URL menuId parameter
-- `networkidle0` can cause "응답없음" on Naver (many background requests) — but still used for editor stability
+- **`networkidle0` is no longer a gate** (v1.8.5). Naver pages keep firing background requests (ads/trackers), and on a slow link — the app runs over ADB mobile-data tethering — network idle may never arrive inside the 30s timeout. Waiting on it meant a blank page on screen and 30s of dead air per attempt, then a *false* failure even though the page was perfectly usable:
+  - `auth.js` (`checkLoginStatus`, `performLogin`) now uses `domcontentloaded` (measured: 0.2s vs 2.6s on a fast link, and it cannot hang) + `waitForSelector('#id')` on the login page. Worst case before: 4 × 30s of silent hang per account switch (= per manuscript), each ending in "로그인 실패".
+  - `post-writer.js` (`navigateToWritePage`) still *tries* `networkidle0`, but a timeout no longer fails the attempt — readiness is decided by `waitForSelector('.se-component-content')`. Retries only if the editor never appears.
+- **Long steps must log to the execution log, not `console.log`** — the renderer only shows what goes through the `log` callback. `navigateToWritePage`/`writePost` previously used `console.log`, so a stuck navigation looked like the app had frozen ("아무 반응 없음"). Page-entry, board select, title, submit, and "등록 중" waits now emit `log()` lines.
 - Comment file input: `.button_file input.blind` (accept="image/*, image/heic")
 - Image extensions supported: jpg, jpeg, jpe, jfif, pjpeg, png, apng, gif, webp, bmp, tif, tiff, ico, svg, svgz, heic, heif, avif, jxl, xbm, pip
 

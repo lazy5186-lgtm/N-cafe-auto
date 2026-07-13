@@ -120,7 +120,7 @@ class Executor extends EventEmitter {
         }
         await browser.close().catch(() => {});
       }
-      browser = await browserManager.launchBrowser();
+      browser = await browserManager.launchBrowser(null, { log: (m) => this.log(m) });
       this._currentBrowser = browser;
       page = await browserManager.createPage(browser, { randomFingerprint: true });
     };
