@@ -22,15 +22,16 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.5
+- **Current version**: 1.8.6
 
 ## Architecture
 
 **Electron two-process model** with strict context isolation (`contextIsolation: true`, `nodeIntegration: false`).
 
 ### Main Process (`src/main/`)
-- `index.js` — App entry point, creates BrowserWindow, auto-updater setup (event-based), data migration (V1 + V2), loads custom nickname words on startup
-- `preload.js` — Context bridge exposing `window.api` to renderer via IPC
+- `index.js` — **Thin bootstrap** (v1.8.6): picks which code to run (bundled vs code-swap update) and requires `app-main.js`. Plain JS, NOT bytenode-compiled (always-loadable fallback anchor). `package.json` `main` points here. Adds bundled `node_modules` to the module search path so code-swapped versions (which ship without `node_modules`) can resolve `bytenode`/`puppeteer-core`/`electron-updater`. See Code-Swap Auto-Update section.
+- `app-main.js` — **Real app entry** (was `index.js` pre-1.8.6): creates BrowserWindow, electron-updater setup (event-based), code-swap check (`setupCodeUpdater`), data migration (V1 + V2), loads custom nickname words on startup
+- `preload.js` — Context bridge exposing `window.api` to renderer via IPC (incl. `api.upd.*` code-swap channels)
 - `ipc-handlers.js` — Registers all `ipcMain.handle()` routes, `safeSend()` helper for destroyed window safety, `changeIPWithStatus()` helper, global execution (single Executor), delete management with IP change, results export (CSV with BOM)
 
 **Core modules** (`src/main/core/`):
@@ -228,6 +229,17 @@ Three fallback strategies with deduplication:
 - `autoDownload: true`, `autoInstallOnAppQuit: true`
 - Header shows version + "업데이트 확인" button
 - `checkForUpdatesAndNotify()` on app start
+
+## Code-Swap Auto-Update (self-hosted, v1.8.6)
+
+A second, independent update channel that swaps **JS only** without reinstalling the installer — for fast patches (the `.exe` is never rebuilt/redistributed). Coexists with electron-updater. Chosen model: **self-hosted on dev's own PC** (port-forward/DDNS), **no license gate** (무인증 — anyone with the app updates).
+
+- **`src/updater.js`** — client. Downloads a new version's JS tree into `userData/app/<version>/` (mirrors the project root), verifies per-file md5, atomically confirms, writes `app/current.json` pointer. `resolveCodeRoot(bundledRoot)` (called by the bootstrap) uses the code-swap version **only if it is strictly newer than the bundled/installed version** (`cmpVersion`) — so an electron-updater installer that raises the asar version automatically supersedes and cleans up a stale code-swap. No license/keys.
+- **Bootstrap** (`src/main/index.js`) selects code-swap-vs-bundled and adds bundled `node_modules` to the search path (version dirs ship without `node_modules`). Entry = `src/main/app-main.js`.
+- **`update-server/`** — Node HTTP server (port **9250**) serving `dist-src/` via a whitelist (`INCLUDE = [/^src\//, /^package\.json$/]` — NOT `node_modules`/`resources`). Routes: `/api/ping`, `/api/check` (version compare, no auth), `/api/manifest` (md5s), `/api/file`. `version.json` drives the compare. `deploy.bat`/`deploy.ps1` (local build+restart), `run-server.bat` (Task Scheduler), `Windows-setup.md` (port-forward/DDNS/Tunnel setup).
+- **Client trigger**: `app-main.js` `setupCodeUpdater()` checks ~4s after launch; if a newer version exists it downloads+applies in the background, then sends `upd:ready` → renderer shows a restart banner. Server URL from `settings.updateServerUrl` || `updater.DEFAULT_SERVER_URL`.
+- **Rollout rule**: the code-swap client only exists in apps that already shipped the bootstrap, so the **first release carrying it (1.8.6) must go out via GitHub/electron-updater** to seed it; code-swap can deliver 1.8.7+. **One version → one channel** (don't publish the same version to both GitHub and code-swap). Electron/native/binary (adb) changes CANNOT code-swap — GitHub installer only. `DEFAULT_SERVER_URL` baked into a release is the lifeline for all future code-swap from that release; plain HTTP over the public internet executes downloaded code — prefer HTTPS (Cloudflare Tunnel) before enabling for real customers.
+- **Build**: `src/main/index.js` (bootstrap) is excluded from `MAIN_FILES`/`NO_EXPORT_FILES` (stays plain); `src/main/app-main.js` takes its place (bytenode). `npm run update-server` starts the server.
 
 ## Naver Cafe Technical Notes
 

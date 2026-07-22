@@ -1,111 +1,72 @@
-const { app, BrowserWindow, dialog } = require('electron');
-const path = require('path');
-const { autoUpdater } = require('electron-updater');
-const { registerHandlers, cleanup } = require('./ipc-handlers');
-const store = require('./data/store');
-const nicknameGenerator = require('./core/nickname-generator');
+'use strict';
+/**
+ * 부트스트랩 (setup-updater — 코드스왑 자동업데이트).
+ *
+ * ★ 이 파일은 **설치본(asar)에 박혀 있고 코드스왑으로 바뀌지 않는다.** 그래서 최대한 얇게,
+ *   평문(bytenode 컴파일 X)으로 둔다 — 항상 로드 가능해야 폴백 앵커 역할을 한다.
+ *   (scripts/build-protected.js 의 MAIN_FILES 에서 index.js 를 뺐다. app-main.js 가 대신 들어간다.)
+ *
+ * package.json 의 "main" 이 이 파일(src/main/index.js)을 가리킨다.
+ *
+ * 하는 일: 실행할 코드가 어디인지 고른 뒤 그쪽 app-main.js 를 로드한다.
+ *   코드스왑으로 받아둔 게 있고 **설치본보다 최신이면**  userData/app/<버전>/src/main/app-main.js
+ *   없거나 망가졌거나 설치본이 더 최신이면                설치본 내장 <root>/src/main/app-main.js
+ *
+ * ⚠ 여기서 예외가 새면 앱이 아예 안 뜬다. 업데이트본 로드가 실패하면 **반드시 내장으로 폴백**한다.
+ */
 
-let mainWindow = null;
+const path = require('node:path');
+const Module = require('node:module');
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 900,
-    minHeight: 600,
-    title: 'N Cafe Auto',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false, // 파일 드래그앤드롭 수신을 위해 sandbox 비활성화 (Electron 30 기본 true)
-    },
-  });
+// 진입점(app-main.js)의 루트 기준 상대 경로. 코드스왑 버전 폴더도 이 트리를 그대로 미러링한다.
+const ENTRY_REL = path.join('src', 'main', 'app-main.js');
 
-  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-  registerHandlers(mainWindow);
+/**
+ * 코드스왑 버전 폴더는 node_modules 를 포함하지 않는다 (용량·네이티브 모듈 때문에 스왑 대상이 아님 —
+ * server.js 의 INCLUDE 가 src/ 와 package.json 만 넘긴다). 그래서 그 폴더에서 로드되는 코드가
+ * third-party 의존성(bytenode·puppeteer-core·electron-updater)을 자기 위치 기준으로는 못 찾는다.
+ * 설치본에선 버전 폴더가 asar 의 node_modules 에서 멀리(AppData) 떨어져 있어 require 가 실패하고,
+ * 부트스트랩이 조용히 내장으로 되돌려 코드스왑이 **영영 적용되지 않는다.**
+ * → 설치본(asar) 의 node_modules 를 모든 모듈 탐색 경로의 **폴백**으로 추가한다(로컬 우선, 그다음 여기).
+ */
+function addBundledNodeModules(bundledRoot) {
+  const nm = path.join(bundledRoot, 'node_modules');
+  const orig = Module._nodeModulePaths;
+  Module._nodeModulePaths = function (from) {
+    const paths = orig.call(this, from);
+    if (!paths.includes(nm)) paths.push(nm);
+    return paths;
+  };
+}
 
-  // 파일 드래그드롭 시 브라우저가 file:// URL로 네비게이션하는 기본 동작 차단
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('file://') && !url.endsWith('index.html')) {
-      console.log('[main] 파일 URL 네비게이션 차단:', url);
-      event.preventDefault();
-    }
-  });
-  // 드롭으로 새 창을 여는 시도도 차단
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    console.log('[main] 새 창 열기 차단:', url);
-    return { action: 'deny' };
-  });
+function boot() {
+  // 이 파일: <root>/src/main/index.js  →  <root> = ../../
+  const bundledRoot = path.join(__dirname, '..', '..');
 
-  // 개발 모드(패키징 안 됨)에서는 DevTools 자동 오픈 — 드래그앤드롭 등 디버깅 용이
-  if (!app.isPackaged) {
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  // 코드스왑본이 설치본 node_modules 를 찾을 수 있게 (내장 폴백 경로에도 무해).
+  try { addBundledNodeModules(bundledRoot); } catch (e) { console.error('[bootstrap] node_modules 경로 확장 실패:', e.message); }
+
+  let root = bundledRoot;
+  try {
+    const { resolveCodeRoot } = require('../updater');
+    root = resolveCodeRoot(bundledRoot);
+  } catch (e) {
+    console.error('[bootstrap] 코드 루트 결정 실패 — 내장 코드로 진행:', e.message);
   }
 
-  // F12 / Ctrl+Shift+I 로 DevTools 토글 (기본 메뉴가 없어도 작동)
-  mainWindow.webContents.on('before-input-event', (_event, input) => {
-    if (input.type !== 'keyDown') return;
-    const isF12 = input.key === 'F12';
-    const isCtrlShiftI = input.control && input.shift && (input.key === 'I' || input.key === 'i');
-    if (isF12 || isCtrlShiftI) {
-      if (mainWindow.webContents.isDevToolsOpened()) {
-        mainWindow.webContents.closeDevTools();
-      } else {
-        mainWindow.webContents.openDevTools({ mode: 'detach' });
-      }
+  if (root !== bundledRoot) {
+    try {
+      require(path.join(root, ENTRY_REL));
+      console.log('[bootstrap] 코드스왑 업데이트본 로드:', root);
+      return;
+    } catch (e) {
+      // 받아둔 코드가 깨졌다. 버리고 내장으로 — 다음 실행부터는 이 단계도 안 탄다.
+      console.error('[bootstrap] 업데이트본 로드 실패 — 내장으로 되돌림:', e.message);
+      try { require('../updater').revertToBundled(); } catch { /* noop */ }
     }
-  });
+  }
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  require(path.join(bundledRoot, ENTRY_REL));
 }
 
-// --- 자동 업데이트 ---
-function setupAutoUpdater() {
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  autoUpdater.on('update-available', (info) => {
-    mainWindow?.webContents.send('update:available', { version: info.version });
-  });
-
-  autoUpdater.on('download-progress', (progress) => {
-    mainWindow?.webContents.send('update:progress', { percent: Math.round(progress.percent) });
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    mainWindow?.webContents.send('update:downloaded', { version: info.version });
-  });
-
-  autoUpdater.on('update-not-available', () => {
-    mainWindow?.webContents.send('update:notAvailable');
-  });
-
-  autoUpdater.on('error', (err) => {
-    console.error('업데이트 오류:', err.message);
-    mainWindow?.webContents.send('update:error', { message: err.message });
-  });
-
-  autoUpdater.checkForUpdatesAndNotify();
-}
-
-app.whenReady().then(() => {
-  store.migrateData();
-  store.migrateDataV2();
-  // 외부(다운로드/카톡 등) 이미지가 아직 남아있는 동안 앱 폴더로 복사해 영구 보존
-  store.migrateLocalizeImages();
-  // 커스텀 닉네임 단어 로드
-  const nickWords = store.loadNicknameWords();
-  nicknameGenerator.setCustomWords(nickWords.adjectives, nickWords.nouns);
-  createWindow();
-  setupAutoUpdater();
-});
-
-app.on('window-all-closed', () => {
-  cleanup();
-  app.quit();
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
+boot();

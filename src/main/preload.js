@@ -102,6 +102,16 @@ contextBridge.exposeInMainWorld('api', {
   onUpdateNotAvailable: (cb) => { ipcRenderer.on('update:notAvailable', () => cb()); },
   onUpdateError: (cb) => { ipcRenderer.on('update:error', (_e, d) => cb(d)); },
 
+  // 코드스왑 자동 업데이트 (자체 서버)
+  upd: {
+    status: () => ipcRenderer.invoke('upd:status'),
+    check: () => ipcRenderer.invoke('upd:check'),
+    apply: () => ipcRenderer.invoke('upd:apply'),
+    restart: () => ipcRenderer.invoke('upd:restart'),
+    onReady: (cb) => { ipcRenderer.on('upd:ready', (_e, d) => cb(d)); },
+    onProgress: (cb) => { ipcRenderer.on('upd:progress', (_e, d) => cb(d)); },
+  },
+
   // 데이터 내보내기/가져오기
   exportData: () => ipcRenderer.invoke('data:export'),
   importData: () => ipcRenderer.invoke('data:import'),

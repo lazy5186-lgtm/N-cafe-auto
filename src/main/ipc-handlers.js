@@ -14,6 +14,7 @@ const postLiker = require('./core/post-liker');
 const Executor = require('./engine/executor');
 const scheduler = require('./engine/scheduler');
 const nicknameGenerator = require('./core/nickname-generator');
+const updater = require('../updater');
 
 let globalExecutor = null;
 let deleteCheckInterval = null;
@@ -643,6 +644,54 @@ function registerHandlers(mainWindow) {
   });
   ipcMain.handle('app:install-update', () => {
     autoUpdater.quitAndInstall();
+  });
+
+  // === 코드스왑 자동 업데이트 (자체 서버, 무인증) ===
+  // 실행 중인 코드의 버전. app.getVersion() 은 항상 asar 버전이라 코드스왑 적용 후 잘못 비교된다.
+  const runningVersion = () => {
+    try {
+      return require(path.join(__dirname, '..', '..', 'package.json')).version;
+    } catch {
+      return app.getVersion();
+    }
+  };
+  const updServerUrl = () => {
+    const s = store.loadSettings();
+    if (s && typeof s.updateServerUrl === 'string' && s.updateServerUrl.trim()) return s.updateServerUrl.trim();
+    return updater.DEFAULT_SERVER_URL;
+  };
+
+  ipcMain.handle('upd:status', () => ({
+    ok: true,
+    version: runningVersion(),
+    serverUrl: updServerUrl(),
+    running: updater.activeUpdateVersion(path.join(__dirname, '..', '..')) ? '코드스왑본' : '설치본',
+  }));
+
+  ipcMain.handle('upd:check', async () => {
+    try {
+      const r = await updater.checkUpdate(updServerUrl(), runningVersion());
+      return { ok: true, ...r };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('upd:apply', async (e) => {
+    try {
+      const r = await updater.applyUpdate(updServerUrl(), (p) => {
+        if (!e.sender.isDestroyed()) e.sender.send('upd:progress', p);
+      });
+      return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // 새 코드는 재시작해야 로드된다 (부트스트랩이 실행 시점에 한 번 고르기 때문).
+  ipcMain.handle('upd:restart', () => {
+    app.relaunch();
+    app.exit(0);
   });
 
   // === 데이터 내보내기/가져오기 ===

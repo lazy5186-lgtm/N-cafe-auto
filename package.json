@@ -1,12 +1,13 @@
 {
   "name": "n-cafe-auto",
-  "version": "1.8.5",
+  "version": "1.8.6",
   "description": "네이버 카페 자동 등록 Electron 앱",
   "main": "src/main/index.js",
   "scripts": {
     "start": "chcp 65001 >nul && electron .",
     "build:protect": "node scripts/build-protected.js",
-    "build": "npm run build:protect && electron-builder --project dist-src"
+    "build": "npm run build:protect && electron-builder --project dist-src",
+    "update-server": "node update-server/server.js"
   },
   "dependencies": {
     "bytenode": "^1.5.7",

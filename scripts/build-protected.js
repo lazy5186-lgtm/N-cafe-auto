@@ -12,7 +12,9 @@ const electronPath = path.join(ROOT, 'node_modules', '.bin', 'electron.cmd');
 //       because bytenode functions return [native code] on .toString(),
 //       which Puppeteer cannot serialize to the browser context.
 const MAIN_FILES = [
-  'src/main/index.js',
+  // ⚠ src/main/index.js 는 코드스왑 부트스트랩(평문)이라 여기 넣지 않는다 —
+  //    항상 로드 가능해야 폴백 앵커가 된다. 실제 진입점 본체는 app-main.js.
+  'src/main/app-main.js',
   'src/main/ipc-handlers.js',
   'src/main/core/adb-helper.js',
   'src/main/core/ip-changer.js',
@@ -27,7 +29,7 @@ const MAIN_FILES = [
 
 // Entry points that don't export (just run)
 const NO_EXPORT_FILES = [
-  'src/main/index.js',
+  'src/main/app-main.js',
 ];
 
 // Preload scripts — obfuscated with target: 'node'

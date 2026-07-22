@@ -2116,7 +2116,14 @@ function appendLikeLog(msg, type) {
 // =============================================
 
 async function setupVersionAndUpdate() {
-  const version = await window.api.getAppVersion();
+  let version = await window.api.getAppVersion();
+  // 코드스왑본이 적용돼 있으면 실행 중인 코드의 버전을 우선 표시 (asar 버전과 다를 수 있음)
+  try {
+    if (window.api.upd) {
+      const st = await window.api.upd.status();
+      if (st && st.ok && st.version) version = st.version;
+    }
+  } catch { /* 무시 — 설치본 버전 사용 */ }
   document.getElementById('app-version').textContent = `v${version}`;
 
   const btn = document.getElementById('btn-check-update');
@@ -2152,6 +2159,44 @@ async function setupVersionAndUpdate() {
     btn.disabled = false;
     btn.textContent = '업데이트 확인';
   });
+
+  // 코드스왑 자동 업데이트 (자체 서버) — 백그라운드로 받아둔 뒤 재시작 유도
+  if (window.api.upd) {
+    window.api.upd.onProgress((p) => {
+      if (p && p.phase === 'download' && p.total) {
+        btn.textContent = `코드 업데이트 ${p.current}/${p.total}`;
+      }
+    });
+    window.api.upd.onReady((d) => {
+      showCodeUpdateBanner(d && d.version);
+    });
+  }
+}
+
+// 코드스왑 새 버전이 준비되면 상단에 재시작 배너를 띄운다.
+function showCodeUpdateBanner(version) {
+  if (document.getElementById('code-update-banner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'code-update-banner';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#2563eb;color:#fff;'
+    + 'padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:12px;'
+    + 'font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+  const msg = document.createElement('span');
+  msg.textContent = `새 버전${version ? ' v' + version : ''}이 준비되었습니다. 재시작하면 적용됩니다.`;
+  const restart = document.createElement('button');
+  restart.textContent = '지금 재시작';
+  restart.style.cssText = 'background:#fff;color:#2563eb;border:none;border-radius:4px;'
+    + 'padding:5px 12px;font-weight:600;cursor:pointer';
+  restart.onclick = () => window.api.upd.restart();
+  const later = document.createElement('button');
+  later.textContent = '나중에';
+  later.style.cssText = 'background:transparent;color:#fff;border:1px solid rgba(255,255,255,.6);'
+    + 'border-radius:4px;padding:5px 12px;cursor:pointer';
+  later.onclick = () => bar.remove();
+  bar.appendChild(msg);
+  bar.appendChild(restart);
+  bar.appendChild(later);
+  document.body.appendChild(bar);
 }
 
 async function initApp() {
