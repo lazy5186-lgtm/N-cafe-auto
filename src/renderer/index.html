@@ -241,7 +241,18 @@
               <div class="form-group" style="margin-bottom:12px;">
                 <label>카페</label>
                 <div class="form-row" style="gap:8px; align-items:center;">
-                  <select class="input" id="ms-cafe-select" style="flex:1;"></select>
+                  <div class="combo" id="ms-cafe-combo" style="flex:1;">
+                    <button type="button" class="input combo-toggle" id="ms-cafe-combo-btn" aria-haspopup="listbox" aria-expanded="false">
+                      <span class="combo-label" id="ms-cafe-combo-label">카페 선택...</span>
+                      <span class="combo-caret">▾</span>
+                    </button>
+                    <div class="combo-panel" id="ms-cafe-combo-panel">
+                      <input type="text" class="combo-search" id="ms-cafe-search" placeholder="카페 검색 (이름/주소)" autocomplete="off">
+                      <div class="combo-count" id="ms-cafe-combo-count"></div>
+                      <div class="combo-list" id="ms-cafe-combo-list" role="listbox"></div>
+                    </div>
+                  </div>
+                  <select class="input" id="ms-cafe-select" style="display:none;"></select>
                   <button class="btn btn-sm btn-secondary" id="btn-ms-fetch-cafes" title="가입 카페 불러오기">새로고침</button>
                   <button class="btn btn-sm btn-primary" id="btn-ms-crawl">게시판 크롤링</button>
                   <span id="ms-crawl-status" style="font-size:12px; color:#8892b0;"></span>
