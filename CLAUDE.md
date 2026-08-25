@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.6
+- **Current version**: 1.8.7
 
 ## Architecture
 
@@ -70,7 +70,7 @@ There are no tests or linting configured.
   - **Limitation**: if the original was already deleted before v1.8.2 ran, the image is unrecoverable (must re-add once).
 
 ### Renderer Process (`src/renderer/`)
-- `index.html` — Single-page UI with 5 global tabs (설정/원고/실행/삭제/좋아요) + 단축키. Manuscript editor includes per-manuscript `예약 발행` datetime input.
+- `index.html` — Single-page UI with 5 global tabs (설정/원고/실행/삭제/좋아요) + 단축키. Manuscript editor includes per-manuscript `예약 발행` datetime input and a **searchable cafe combobox** (`#ms-cafe-combo`, v1.8.7) — the original `<select id="ms-cafe-select">` is kept hidden as the single source of value/`change` events, so the board auto-load flow is unchanged.
 - `app.js` — Global tab controller: settings (accounts with persistent login `testStatus` + filter buttons "미테스트만 테스트" / "실패만 재테스트" / "전체 로그인 테스트", **per-row checkbox + header select-all for "진단용 쿠키 내보내기" (selected accounts only)**, IP, headless, nickname words, comment delay), manuscript list/editor with scheduled publish + random account, execution controls with results/CSV export, delete management, like tab, shortcut system, version display + update check, toast notifications (replaces `alert()`)
 - `components/account-tab.js` — `MsHelpers` object: DOM rendering helpers for segments, comments (with `randomNickname` + `randomAccount` checkboxes), recursive replies. **Drag-and-drop**: `setupDropZone()` attaches dragover/drop handlers to image segment areas; `getDroppedImagePaths()` reads `e.dataTransfer.files`. Global `dropZoneGuard` prevents Electron from navigating away when files dropped outside drop zones.
 - `styles/main.css` — Dark theme styling, `.drag-over` highlight class
