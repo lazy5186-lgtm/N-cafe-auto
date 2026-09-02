@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.7
+- **Current version**: 1.8.8
 
 ## Architecture
 
@@ -169,7 +169,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 6. Write body segments (text via `execCommand('insertText')` line-by-line, image via `uploadFile` with `fileChooser` fallback)
 7. Enter title (`.textarea_input`, `keyboard.type`)
 8. Set visibility (public/member) via `.btn_open_set` dropdown
-9. Click submit (`.BaseButton--skinGreen`), wait for navigation (max 10s), retry once if still on write page
+9. Click submit (`.BaseButton--skinGreen`), then **`acceptConfirmLayer()`** (2026-09): Naver now shows an in-page Vue modal for public posts — `div.ModalLayer.header_basic` "이 글은 전체공개로 설정되어 있어요… 계속할까요?" with `.layer_footer button.BaseButton--green` (확인). It is NOT a native `confirm()` (dialog handler can't catch it) and the post does not submit until 확인 is clicked. Polled up to 4s, clicked via `page.mouse.click` at the button center (DOM `click()` fallback). Note the modal's 확인 is `.BaseButton--green`, the 등록 button is `.BaseButton--skinGreen`. Then wait for navigation (max 30s), retry once if still on write page. The `.alert_text` "등록 중" check only counts *visible* elements — a hidden "등록 중입니다." loading modal is always in the DOM.
 
 ## Comment/Reply Image Upload
 

@@ -391,6 +391,76 @@ async function selectBoard(page, menuId, boardName) {
   }
 }
 
+/**
+ * 등록 버튼 클릭 후 뜨는 인페이지 레이어 팝업(확인/취소) 처리.
+ * 2026-09 네이버 카페가 전체공개 글 등록 시
+ *   "이 글은 전체공개로 설정되어 있어요. 카페 멤버가 아닌 사람도 이 글을 볼 수 있어요. 계속할까요?"
+ * 모달(`div.ModalLayer.header_basic` > `.layer_footer` > `button.BaseButton--green` "확인")을 띄우기 시작했다.
+ * 네이티브 confirm()이 아니라 Vue 레이어라 dialog 핸들러로는 잡히지 않고, 확인을 누르기 전엔 등록이 진행되지 않는다.
+ * (참고: 등록 버튼은 `.BaseButton--skinGreen`, 모달 확인 버튼은 `.BaseButton--green` — 클래스가 다르다)
+ *
+ * timeoutMs 동안 폴링해서 보이는 모달을 찾으면 확인 버튼을 클릭하고 true를 반환한다.
+ * 모달이 안 뜨면(= 예전처럼 바로 등록되는 경우) false.
+ */
+async function acceptConfirmLayer(page, log = console.log, timeoutMs = 4000) {
+  const findLayer = () => page.evaluate(() => {
+    const visible = (el) => {
+      if (!el) return false;
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const layers = [...document.querySelectorAll('.ModalLayer, [class*="ModalLayer"], .layer_popup, [role="dialog"]')].filter(visible);
+    for (const layer of layers) {
+      const buttons = [...layer.querySelectorAll('button')].filter(visible);
+      const confirmBtn =
+        buttons.find((b) => b.classList.contains('BaseButton--green')) ||
+        buttons.find((b) => /^(확인|계속|등록)$/.test(b.textContent.trim()));
+      if (!confirmBtn) continue;
+      const text = (layer.querySelector('.layer_content_text, .layer_content') || layer).innerText.replace(/\s+/g, ' ').trim();
+      // 로딩 모달("등록 중입니다.")은 버튼이 없어 여기까지 오지 않지만, 혹시 몰라 제외
+      if (/등록 중입니다/.test(text) && buttons.length === 0) continue;
+      confirmBtn.setAttribute('data-ncafe-confirm', '1');
+      const r = confirmBtn.getBoundingClientRect();
+      return { text, btnText: confirmBtn.textContent.trim(), x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    }
+    return null;
+  }).catch(() => null);
+
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const found = await findLayer();
+    if (found) {
+      log(`확인 팝업 감지: "${found.text.slice(0, 80)}" → [${found.btnText}] 클릭`);
+      // 1차: 실제 마우스 클릭 (신뢰 이벤트), 2차: DOM click
+      try {
+        await page.mouse.click(found.x, found.y);
+      } catch (e) {
+        await page.evaluate(() => {
+          const b = document.querySelector('[data-ncafe-confirm="1"]');
+          if (b) b.click();
+        }).catch(() => {});
+      }
+      await delay(500);
+      const still = await findLayer();
+      if (still && still.text === found.text) {
+        // 마우스 클릭이 안 먹었으면 DOM click으로 한 번 더
+        await page.evaluate(() => {
+          const b = document.querySelector('[data-ncafe-confirm="1"]');
+          if (b) b.click();
+        }).catch(() => {});
+        await delay(500);
+      }
+      return true;
+    }
+    // 이미 페이지를 떠났으면 (등록 완료) 더 볼 필요 없음
+    if (!page.url().includes('articles/write')) return false;
+    await delay(250);
+  }
+  return false;
+}
+
 async function writePost(page, cafeId, menuId, title, bodySegments, boardName, visibility, log = console.log) {
   await navigateToWritePage(page, cafeId, menuId, log);
 
@@ -574,15 +644,18 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   // 등록 전 현재 URL 기억
   const writePageUrl = page.url();
 
+  // 클릭 전에 네비게이션 대기를 걸어두어야 모달 처리 중에 일어나는 이동을 놓치지 않는다
+  const navPromise = page.waitForNavigation({ timeout: 30000 }).then(() => true).catch(() => false);
   await writeButton.click();
   console.log('등록 버튼 클릭 완료, 네비게이션 대기...');
 
+  // 전체공개 확인 레이어 팝업("계속할까요?") 처리 — 안 뜨면 그냥 지나감
+  const confirmed = await acceptConfirmLayer(page, log, 4000);
+  if (confirmed) log('확인 팝업 처리 완료 — 등록 진행 대기 중...');
+
   // 네비게이션 대기 (최대 30초)
-  try {
-    await page.waitForNavigation({ timeout: 30000 });
-  } catch (e) {
-    console.log('네비게이션 타임아웃, 현재 URL 확인...');
-  }
+  const navigated = await navPromise;
+  if (!navigated) console.log('네비게이션 타임아웃, 현재 URL 확인...');
 
   await delay(1000);
 
@@ -592,14 +665,24 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   // 글쓰기 페이지에서 벗어났는지 확인
   if (currentUrl.includes('articles/write')) {
     // 에러 메시지 확인
+    // 보이는 요소만 — 숨겨진 "등록 중입니다." 로딩 모달이 DOM에 상시 존재한다
     const errorMsg = await page.evaluate(() => {
-      const errEl = document.querySelector('.error_message, .alert_text');
-      return errEl ? errEl.textContent.trim() : null;
+      const els = [...document.querySelectorAll('.error_message, .alert_text')];
+      const el = els.find((e) => {
+        const r = e.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && getComputedStyle(e).display !== 'none';
+      });
+      return el ? el.textContent.trim() : null;
     });
 
     // "등록 중" 이외의 에러 → 즉시 실패
     if (errorMsg && !errorMsg.includes('등록 중')) {
       throw new Error(`게시글 등록 실패: ${errorMsg}`);
+    }
+
+    // 확인 팝업이 늦게 떴을 수도 있으니 한 번 더 확인
+    if (await acceptConfirmLayer(page, log, 1500)) {
+      log('확인 팝업 처리 완료 — 등록 진행 대기 중...');
     }
 
     // "등록 중입니다" 로딩 상태 → 버튼 재클릭 없이 네비게이션만 대기
@@ -630,4 +713,4 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   throw new Error('게시글 등록에 실패했습니다. 글쓰기 페이지에서 벗어나지 못했습니다.');
 }
 
-module.exports = { writePost, navigateToWritePage, uploadImage, typeTextInEditor, selectBoard };
+module.exports = { writePost, navigateToWritePage, uploadImage, typeTextInEditor, selectBoard, acceptConfirmLayer };
