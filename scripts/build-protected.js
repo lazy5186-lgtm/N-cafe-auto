@@ -53,6 +53,7 @@ const PUPPETEER_FILES = [
 const RENDERER_FILES = [
   'src/renderer/app.js',
   'src/renderer/components/account-tab.js',
+  'src/renderer/components/search-combo.js',
 ];
 
 // ── Helpers ──────────────────────────────────────────────

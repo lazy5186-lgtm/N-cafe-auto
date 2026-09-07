@@ -950,6 +950,11 @@ function renderMsEditor() {
     getCommentAccountColor(ms.accountId);
   }
   applySelectColor(msAccount);
+  SearchCombo.attach(msAccount, {
+    placeholder: '계정 선택...',
+    searchPlaceholder: '계정 검색',
+    emptyText: '계정이 없습니다 — 설정 탭에서 추가하세요',
+  });
 
   // 게시자 랜덤 계정
   const msRandomAcct = document.getElementById('ms-random-account');
@@ -966,8 +971,6 @@ function renderMsEditor() {
   // 카페
   document.getElementById('ms-cafe-name').value = ms.cafeName || '';
   document.getElementById('ms-cafe-id').value = ms.cafeId || '';
-  const cafeSearchEl = document.getElementById('ms-cafe-search');
-  if (cafeSearchEl) cafeSearchEl.value = ''; // 다른 원고를 열면 검색어 초기화
   renderCafeSelect(ms);
 
   // 게시판 — 네이버 API가 &bull; 같은 HTML 엔티티를 그대로 반환하므로 디코딩해서 •로 표시
@@ -1220,7 +1223,7 @@ async function fetchBoardsForCafe(cafeIdOrName, accountId) {
 }
 
 // 카페 선택 = 숨겨진 <select id="ms-cafe-select">가 여전히 값/change 이벤트의 원본이고,
-// 화면에 보이는 건 검색창이 들어있는 커스텀 드롭다운(#ms-cafe-combo)이다.
+// 화면에 보이는 건 SearchCombo가 그 뒤에 붙여둔 검색형 드롭다운이다.
 function renderCafeSelect(ms) {
   const select = document.getElementById('ms-cafe-select');
   select.innerHTML = '';
@@ -1257,115 +1260,7 @@ function renderCafeSelect(ms) {
     select.appendChild(opt);
   }
 
-  renderCafeCombo();
-  updateCafeComboLabel();
-}
-
-// 커스텀 드롭다운 목록을 검색어로 걸러서 다시 그림
-let _cafeComboActive = -1; // 키보드로 이동 중인 항목의 select option index
-
-function renderCafeCombo() {
-  const select = document.getElementById('ms-cafe-select');
-  const list = document.getElementById('ms-cafe-combo-list');
-  const countEl = document.getElementById('ms-cafe-combo-count');
-  const searchEl = document.getElementById('ms-cafe-search');
-  if (!select || !list) return;
-
-  const q = (searchEl ? searchEl.value : '').trim().toLowerCase();
-  const opts = Array.from(select.options).slice(1); // 0번은 "카페 선택..." 안내
-  const shown = opts.filter(o => !q || (o.textContent + ' ' + o.value).toLowerCase().includes(q));
-
-  if (countEl) {
-    if (!opts.length) countEl.textContent = '카페 목록이 없습니다 — "새로고침"을 누르세요';
-    else if (q) countEl.textContent = `검색 ${shown.length} / 전체 ${opts.length}개`;
-    else countEl.textContent = `전체 ${opts.length}개`;
-  }
-
-  list.innerHTML = '';
-  if (!shown.length) {
-    const empty = document.createElement('div');
-    empty.className = 'combo-empty';
-    empty.textContent = opts.length ? '검색 결과 없음' : '';
-    list.appendChild(empty);
-    _cafeComboActive = -1;
-    return;
-  }
-
-  // 활성 항목: 검색 중이면 첫 결과, 아니면 현재 선택된 항목
-  const selIdx = select.selectedIndex;
-  const preferred = (!q && selIdx > 0) ? selIdx : -1;
-  _cafeComboActive = shown.some(o => o.index === preferred) ? preferred : shown[0].index;
-
-  shown.forEach(o => {
-    const item = document.createElement('div');
-    item.className = 'combo-item'
-      + (o.index === selIdx ? ' selected' : '')
-      + (o.index === _cafeComboActive ? ' active' : '');
-    item.textContent = o.textContent;
-    item.title = o.textContent;
-    item.dataset.index = String(o.index);
-    item.setAttribute('role', 'option');
-    item.addEventListener('mousedown', (e) => {
-      e.preventDefault(); // 검색창 blur 방지
-      pickCafeOption(o.index);
-    });
-    list.appendChild(item);
-  });
-
-  const activeEl = list.querySelector('.combo-item.active');
-  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-}
-
-function updateCafeComboLabel() {
-  const select = document.getElementById('ms-cafe-select');
-  const label = document.getElementById('ms-cafe-combo-label');
-  if (!select || !label) return;
-  const opt = select.options[select.selectedIndex];
-  label.textContent = (opt && opt.value) ? opt.textContent : '카페 선택...';
-  label.style.color = (opt && opt.value) ? '#e0e0e0' : '#5a6485';
-}
-
-// 목록에서 항목 선택 → 숨겨진 select에 반영하고 기존 change 흐름(게시판 로드) 실행
-function pickCafeOption(optIndex) {
-  const select = document.getElementById('ms-cafe-select');
-  if (!select || optIndex < 0 || optIndex >= select.options.length) return;
-  select.selectedIndex = optIndex;
-  select.dispatchEvent(new Event('change'));
-  updateCafeComboLabel();
-  closeCafeCombo();
-}
-
-function openCafeCombo() {
-  const combo = document.getElementById('ms-cafe-combo');
-  const btn = document.getElementById('ms-cafe-combo-btn');
-  const searchEl = document.getElementById('ms-cafe-search');
-  if (!combo) return;
-  combo.classList.add('open');
-  if (btn) btn.setAttribute('aria-expanded', 'true');
-  if (searchEl) { searchEl.value = ''; }
-  renderCafeCombo();
-  if (searchEl) searchEl.focus();
-}
-
-function closeCafeCombo() {
-  const combo = document.getElementById('ms-cafe-combo');
-  const btn = document.getElementById('ms-cafe-combo-btn');
-  if (!combo) return;
-  combo.classList.remove('open');
-  if (btn) btn.setAttribute('aria-expanded', 'false');
-}
-
-// 키보드 위/아래로 활성 항목 이동
-function moveCafeComboActive(delta) {
-  const list = document.getElementById('ms-cafe-combo-list');
-  if (!list) return;
-  const items = Array.from(list.querySelectorAll('.combo-item'));
-  if (!items.length) return;
-  let pos = items.findIndex(el => Number(el.dataset.index) === _cafeComboActive);
-  pos = Math.max(0, Math.min(items.length - 1, (pos < 0 ? 0 : pos + delta)));
-  _cafeComboActive = Number(items[pos].dataset.index);
-  items.forEach(el => el.classList.toggle('active', Number(el.dataset.index) === _cafeComboActive));
-  items[pos].scrollIntoView({ block: 'nearest' });
+  SearchCombo.refresh(select);
 }
 
 async function fetchCafesForAccount(accountId) {
@@ -1520,35 +1415,12 @@ function setupManuscriptsTab() {
   document.getElementById('btn-delete-ms-top').addEventListener('click', deleteMs);
 
   // 카페 콤보박스 (검색창이 드롭다운 안에 있음)
-  const cafeComboBtn = document.getElementById('ms-cafe-combo-btn');
-  const cafeSearch = document.getElementById('ms-cafe-search');
-  if (cafeComboBtn && cafeSearch) {
-    cafeComboBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const combo = document.getElementById('ms-cafe-combo');
-      if (combo.classList.contains('open')) closeCafeCombo();
-      else openCafeCombo();
-    });
-
-    cafeSearch.addEventListener('input', renderCafeCombo);
-
-    cafeSearch.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { e.preventDefault(); closeCafeCombo(); cafeComboBtn.focus(); }
-      else if (e.key === 'ArrowDown') { e.preventDefault(); moveCafeComboActive(1); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); moveCafeComboActive(-1); }
-      else if (e.key === 'Enter') {
-        e.preventDefault();
-        if (_cafeComboActive >= 0) pickCafeOption(_cafeComboActive);
-      } else if (e.key === 'Tab') {
-        closeCafeCombo();
-      }
-    });
-
-    // 바깥 클릭 시 닫기
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('#ms-cafe-combo')) closeCafeCombo();
-    });
-  }
+  SearchCombo.attach(document.getElementById('ms-cafe-select'), {
+    placeholder: '카페 선택...',
+    searchPlaceholder: '카페 검색 (이름/주소)',
+    emptyText: '카페 목록이 없습니다 — "새로고침"을 누르세요',
+    rootStyle: 'flex:1;',
+  });
 
   // 카페 드롭다운 변경 → 게시판 자동 로드
   document.getElementById('ms-cafe-select').addEventListener('change', (e) => {
@@ -1756,6 +1628,15 @@ function renderPresetSelect() {
 
 function setupPresets() {
   renderPresetSelect();
+
+  // 프리셋 콤보박스 (검색창이 드롭다운 안에 있음)
+  // "찾아보기..."는 검색 결과와 상관없이 항상 목록 맨 아래에 남는다
+  SearchCombo.attach(document.getElementById('preset-select'), {
+    placeholder: '프리셋 선택...',
+    searchPlaceholder: '프리셋 검색 (이름/계정)',
+    emptyText: '저장된 프리셋이 없습니다',
+    actionValues: ['__browse__'],
+  });
 
   // 드롭다운 "찾아보기..." 선택 시 파일에서 불러오기
   document.getElementById('preset-select').addEventListener('change', async (e) => {

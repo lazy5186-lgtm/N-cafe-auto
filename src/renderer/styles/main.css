@@ -780,5 +780,11 @@ input[type="date"].input {
   text-overflow: ellipsis;
 }
 .combo-item:hover, .combo-item.active { background: #1b2838; color: #e0e0e0; }
-.combo-item.selected { color: #64ffda; }
+/* 계정 색상이 인라인으로 칠해진 항목에서도 선택 표시가 보이도록 색이 아닌 막대로 표시 */
+.combo-item.selected { color: #64ffda; box-shadow: inset 2px 0 0 #64ffda; }
+/* "선택 해제" / "찾아보기..." 같은 보조 항목 */
+.combo-item.muted { color: #5a6485; }
 .combo-empty { padding: 8px; font-size: 12px; color: #5a6485; }
+
+.combo.disabled { opacity: 0.4; }
+.combo.disabled .combo-toggle { cursor: default; }

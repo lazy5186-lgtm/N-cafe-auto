@@ -22,7 +22,7 @@ There are no tests or linting configured.
 
 - **GitHub**: https://github.com/lazy5186-lgtm/N-cafe-auto (public — required for auto-update)
 - **Auto-update**: `electron-updater` + GitHub Releases (event-based, auto-download)
-- **Current version**: 1.8.8
+- **Current version**: 1.8.9
 
 ## Architecture
 
@@ -70,8 +70,9 @@ There are no tests or linting configured.
   - **Limitation**: if the original was already deleted before v1.8.2 ran, the image is unrecoverable (must re-add once).
 
 ### Renderer Process (`src/renderer/`)
-- `index.html` — Single-page UI with 5 global tabs (설정/원고/실행/삭제/좋아요) + 단축키. Manuscript editor includes per-manuscript `예약 발행` datetime input and a **searchable cafe combobox** (`#ms-cafe-combo`, v1.8.7) — the original `<select id="ms-cafe-select">` is kept hidden as the single source of value/`change` events, so the board auto-load flow is unchanged.
+- `index.html` — Single-page UI with 5 global tabs (설정/원고/실행/삭제/좋아요) + 단축키. Manuscript editor includes per-manuscript `예약 발행` datetime input. Searchable dropdowns are **not** in the markup — `SearchCombo` builds them at runtime next to the plain `<select>` (see below).
 - `app.js` — Global tab controller: settings (accounts with persistent login `testStatus` + filter buttons "미테스트만 테스트" / "실패만 재테스트" / "전체 로그인 테스트", **per-row checkbox + header select-all for "진단용 쿠키 내보내기" (selected accounts only)**, IP, headless, nickname words, comment delay), manuscript list/editor with scheduled publish + random account, execution controls with results/CSV export, delete management, like tab, shortcut system, version display + update check, toast notifications (replaces `alert()`)
+- `components/search-combo.js` — **`SearchCombo`**: searchable dropdown shared by every long list (v1.8.9; generalized from the v1.8.7 cafe-only combobox). `SearchCombo.attach(selectEl, {placeholder, searchPlaceholder, emptyText, actionValues, rootStyle})` hides the `<select>` (`display:none`) and inserts a `.combo` widget after it; the select stays the **single source of value/`change` events**, so existing readers (`collectMsData`), `change` listeners and `innerHTML` option rebuilds keep working untouched. A `MutationObserver` on the select (childList + `disabled`/`style`) re-syncs the label automatically, so a re-render only needs `SearchCombo.attach()` again (idempotent) or `SearchCombo.refresh(select)`. Applied to: 카페(`#ms-cafe-select`), 프리셋(`#preset-select`, with `actionValues: ['__browse__']` pinning 찾아보기 to the bottom), 게시 계정(`#ms-account`), 댓글/대댓글 계정(`.ms-cmt-account`/`.ms-reply-account`). Option colors set by `applySelectColor()` (계정별 색상) are mirrored onto the combo items and label. Only one combo is open at a time; keyboard: ↑↓/Enter/Esc/Tab.
 - `components/account-tab.js` — `MsHelpers` object: DOM rendering helpers for segments, comments (with `randomNickname` + `randomAccount` checkboxes), recursive replies. **Drag-and-drop**: `setupDropZone()` attaches dragover/drop handlers to image segment areas; `getDroppedImagePaths()` reads `e.dataTransfer.files`. Global `dropZoneGuard` prevents Electron from navigating away when files dropped outside drop zones.
 - `styles/main.css` — Dark theme styling, `.drag-over` highlight class
 - All renderer code is vanilla JS (no framework), communicates with main process via `window.api`
@@ -117,6 +118,7 @@ Dependencies: `bytenode` (compilation), `javascript-obfuscator` (obfuscation)
 - **Scheduled publishing**: Per-manuscript `scheduledAt` (ISO string). Polled every 30s; manuscripts past their time by >2 min get marked `expired` (no auto-execute) — see Scheduled Publishing section.
 - **Drag-and-drop image upload** (renderer): Image body segments accept dropped files. Global guard prevents stray drops from navigating away in packaged app. HTML entities in dropped paths are decoded (v1.7.1 fix for packaged builds).
 - **Toast notifications**: Non-blocking toast messages replace `alert()` in renderer (prevents focus loss)
+- **Searchable dropdowns**: any long `<select>` gets `SearchCombo.attach()` (카페/프리셋/게시 계정/댓글·대댓글 계정). The select itself is never replaced — it stays hidden as the value/event source, so no calling code changes when a dropdown becomes searchable.
 
 ## Data Structures
 

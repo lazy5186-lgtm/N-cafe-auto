@@ -317,6 +317,11 @@ const MsHelpers = {
     }
     applyItemColor(div, cmt.accountId);
     applySelectColor(accountSelect);
+    SearchCombo.attach(accountSelect, {
+      placeholder: '계정 선택...',
+      searchPlaceholder: '계정 검색',
+      emptyText: '계정이 없습니다 — 설정 탭에서 추가하세요',
+    });
 
     // 계정 변경 시 색상 갱신
     accountSelect.addEventListener('change', () => {
@@ -410,6 +415,11 @@ const MsHelpers = {
     }
     applyItemColor(div, reply.accountId);
     applySelectColor(accountSelect);
+    SearchCombo.attach(accountSelect, {
+      placeholder: '계정 선택...',
+      searchPlaceholder: '계정 검색',
+      emptyText: '계정이 없습니다 — 설정 탭에서 추가하세요',
+    });
 
     // 계정 변경 시 색상 갱신
     accountSelect.addEventListener('change', () => {
