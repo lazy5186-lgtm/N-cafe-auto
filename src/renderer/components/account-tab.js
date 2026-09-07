@@ -321,6 +321,7 @@ const MsHelpers = {
       placeholder: '계정 선택...',
       searchPlaceholder: '계정 검색',
       emptyText: '계정이 없습니다 — 설정 탭에서 추가하세요',
+      wide: true, // 아이디가 길어도 목록에서 안 잘리게 (기존 select 팝업과 동일)
     });
 
     // 계정 변경 시 색상 갱신
@@ -419,6 +420,7 @@ const MsHelpers = {
       placeholder: '계정 선택...',
       searchPlaceholder: '계정 검색',
       emptyText: '계정이 없습니다 — 설정 탭에서 추가하세요',
+      wide: true, // 아이디가 길어도 목록에서 안 잘리게 (기존 select 팝업과 동일)
     });
 
     // 계정 변경 시 색상 갱신

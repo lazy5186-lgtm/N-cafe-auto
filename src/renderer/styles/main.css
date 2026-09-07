@@ -749,6 +749,14 @@ input[type="date"].input {
 }
 .combo.open .combo-panel { display: block; }
 
+/* wide: 버튼은 그대로 두고 펼친 목록만 내용 폭에 맞춰 넓힘 (프리셋처럼 항목이 긴 경우) */
+.combo.wide .combo-panel {
+  right: auto;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(680px, 70vw);
+}
+
 .combo-search {
   width: 100%;
   padding: 6px 8px;

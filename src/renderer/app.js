@@ -954,6 +954,7 @@ function renderMsEditor() {
     placeholder: '계정 선택...',
     searchPlaceholder: '계정 검색',
     emptyText: '계정이 없습니다 — 설정 탭에서 추가하세요',
+    wide: true, // 아이디가 길어도 목록에서 안 잘리게 (기존 select 팝업과 동일)
   });
 
   // 게시자 랜덤 계정
@@ -1636,6 +1637,7 @@ function setupPresets() {
     searchPlaceholder: '프리셋 검색 (이름/계정)',
     emptyText: '저장된 프리셋이 없습니다',
     actionValues: ['__browse__'],
+    wide: true, // 프리셋 이름 + 원고수/계정/날짜가 길어서 220px 버튼 폭으로는 잘림
   });
 
   // 드롭다운 "찾아보기..." 선택 시 파일에서 불러오기

@@ -14,12 +14,17 @@
 let _openCombo = null;      // 동시에 열리는 콤보는 하나만
 let _docClickBound = false;
 
+// 가나다/ABC 오름차순. numeric:true → "3/9"가 "3/11"보다 앞
+const _collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+
 class SearchComboBox {
   constructor(select, opts) {
     this.select = select;
     this.opts = opts || {};
     // 목록에서 빼고 항상 맨 아래에 고정으로 보여줄 값들 (예: 프리셋 "찾아보기...")
     this.actionValues = this.opts.actionValues || [];
+    // 목록은 기본 오름차순 정렬 (원본 select의 옵션 순서는 그대로 둔다 — 값/인덱스는 건드리지 않음)
+    this.sort = this.opts.sort !== false;
     this.activeIndex = -1; // 키보드로 이동 중인 항목의 select option index
 
     this._build();
@@ -43,6 +48,8 @@ class SearchComboBox {
       </div>
     `;
     root.style.width = this.select.style.width || '100%';
+    // wide: 펼친 목록을 버튼 폭에 맞추지 않고 내용만큼 넓힌다 (항목이 길어 잘리는 드롭다운용)
+    if (this.opts.wide) root.classList.add('wide');
     if (this.opts.rootStyle) root.style.cssText += this.opts.rootStyle;
 
     this.root = root;
@@ -180,6 +187,7 @@ class SearchComboBox {
     const items = all.filter(o => o.value !== '' && !this.actionValues.includes(o.value));
     const actions = all.filter(o => this.actionValues.includes(o.value));
     const shown = items.filter(o => !q || (o.textContent + ' ' + o.value).toLowerCase().includes(q));
+    if (this.sort) shown.sort((a, b) => _collator.compare(a.textContent, b.textContent));
 
     if (!items.length) this.countEl.textContent = this.opts.emptyText || '';
     else if (q) this.countEl.textContent = `검색 ${shown.length} / 전체 ${items.length}개`;
