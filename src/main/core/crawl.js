@@ -383,9 +383,9 @@ async function fetchJoinedCafes(accountId) {
   let browser = null;
 
   try {
-    browser = await browserManager.launchBrowser();
+    browser = await browserManager.launchBrowser(null, { accountId });
     const page = await browserManager.createPage(browser);
-    await page.setCookie(...cookies);
+    await auth.restoreSession(page, accountId);
 
     // 네이버 카페 모바일 페이지로 이동 (쿠키 활성화)
     await page.goto('https://m.cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });

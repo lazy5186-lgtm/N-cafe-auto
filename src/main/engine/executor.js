@@ -112,17 +112,17 @@ class Executor extends EventEmitter {
     let browser = null;
     let page = null;
 
-    // 계정 전환 시 브라우저 재시작 (랜덤 UA + 랜덤 해상도)
-    const openNewBrowser = async () => {
+    // 계정 전환 시 브라우저 재시작 (그 계정 전용 프로필로)
+    const openNewBrowser = async (accountId) => {
       if (browser) {
         if (currentLoggedInAccount) {
           await auth.saveCookiesAfterAction(page, currentLoggedInAccount);
         }
         await browser.close().catch(() => {});
       }
-      browser = await browserManager.launchBrowser(null, { log: (m) => this.log(m) });
+      browser = await browserManager.launchBrowser(null, { log: (m) => this.log(m), accountId });
       this._currentBrowser = browser;
-      page = await browserManager.createPage(browser, { randomFingerprint: true });
+      page = await browserManager.createPage(browser);
     };
 
     try {
@@ -166,10 +166,10 @@ class Executor extends EventEmitter {
             }
           }
 
-          await openNewBrowser();
+          await openNewBrowser(posterAccId);
 
           this.log(`${posterAccId} 로그인 시도...`);
-          const loginResult = await auth.loginAccount(page, posterAcc.id, posterAcc.password);
+          const loginResult = await auth.loginAccount(page, posterAcc.id, posterAcc.password, { log: (m) => this.log(m) });
 
           if (!loginResult.success) {
             this.log(`${posterAccId} 로그인 실패`);
@@ -246,14 +246,14 @@ class Executor extends EventEmitter {
                 }
 
                 this.log(`계정 전환: ${targetAccId}`);
-                await openNewBrowser();
-                const result = await auth.loginAccount(page, targetAcc.id, targetAcc.password);
+                await openNewBrowser(targetAccId);
+                const result = await auth.loginAccount(page, targetAcc.id, targetAcc.password, { log: (m) => this.log(m) });
                 if (!result.success) {
                   this.log(`${targetAccId} 로그인 실패`);
                   return false;
                 }
                 currentLoggedInAccount = targetAccId;
-                this.log(`${targetAccId} 로그인 성공`);
+                this.log(`${targetAccId} 로그인 성공 (${result.method})`);
               }
 
               // 닉네임 변경 (랜덤 > 커스텀)
@@ -401,15 +401,13 @@ class Executor extends EventEmitter {
 
               resultEntry.comments.push(cmtResult);
             }
-
-            // 포스팅 계정으로 복귀 (브라우저 재시작)
-            if (currentLoggedInAccount !== posterAccId) {
-              this.log(`원래 계정으로 복귀: ${posterAccId}`);
-              await openNewBrowser();
-              await auth.loginAccount(page, posterAcc.id, posterAcc.password);
-              currentLoggedInAccount = posterAccId;
-            }
           }
+
+          // 여기서 게시자 계정으로 되돌리지 않는다. 예전엔 복귀 전용으로 브라우저를
+          // 재시작 + 재로그인했는데, 그 경로에만 IP 변경이 빠져 있어서 마지막 댓글
+          // 계정과 게시자가 같은 IP를 공유하게 됐다(계정끼리 묶이는 신호).
+          // 복귀를 생략하면 다음 원고 시작에서 계정 불일치가 감지돼
+          // IP 변경 → 브라우저 재시작 → 로그인이 정상 경로로 한 번에 처리된다.
 
           // 게시글 삭제 관리용 저장
           if (resultEntry.postUrl) {

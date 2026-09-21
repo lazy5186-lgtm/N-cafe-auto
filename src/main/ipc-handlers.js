@@ -41,10 +41,12 @@ function registerHandlers(mainWindow) {
 
   ipcMain.handle('account:delete', (_e, accountId) => {
     const ok = store.deleteAccount(accountId);
+    if (ok) browserManager.removeProfile(accountId);
     return { success: ok };
   });
 
   ipcMain.handle('accounts:delete-all', () => {
+    for (const acc of store.loadAccounts()) browserManager.removeProfile(acc.id);
     store.saveAccounts([]);
     return { success: true };
   });
@@ -123,13 +125,10 @@ function registerHandlers(mainWindow) {
     try {
       await changeIPWithStatus(`로그인 테스트 (${accountId})`);
 
-      browser = await browserManager.launchBrowser(null, { log: browserLog });
-      const page = await browserManager.createPage(browser, { randomFingerprint: true });
-      const result = await auth.loginAccount(page, account.id, account.password);
-      if (result.success) {
-        const cookies = await page.cookies();
-        store.saveCookies(account.id, cookies);
-      }
+      browser = await browserManager.launchBrowser(null, { log: browserLog, accountId: account.id });
+      const page = await browserManager.createPage(browser);
+      // 성공 시 쿠키 저장은 loginAccount 가 한다
+      const result = await auth.loginAccount(page, account.id, account.password, { log: browserLog });
       await browser.close();
       store.updateAccount(account.id, { testStatus: result.success ? 'success' : 'fail' });
       return { success: result.success, method: result.method };
@@ -203,9 +202,9 @@ function registerHandlers(mainWindow) {
       const cookies = store.loadCookies(targetAccountId);
       if (!cookies) return { success: false, error: `${targetAccountId} 계정의 쿠키가 없습니다. 먼저 로그인 테스트를 실행하세요.` };
 
-      browser = await browserManager.launchBrowser(null, { log: browserLog });
+      browser = await browserManager.launchBrowser(null, { log: browserLog, accountId: targetAccountId });
       const page = await browserManager.createPage(browser);
-      await page.setCookie(...cookies);
+      await auth.restoreSession(page, targetAccountId);
 
       const result = await crawl.crawlBoards(page, cafeName, cafeName);
       await browser.close();
@@ -285,20 +284,24 @@ function registerHandlers(mainWindow) {
           }
         }
 
-        // 계정마다 새 브라우저
+        // 계정마다 새 브라우저 (그 계정 전용 프로필)
         let browser = null;
         try {
-          browser = await browserManager.launchBrowser(null, { log: browserLog });
-          const page = await browserManager.createPage(browser, { randomFingerprint: true });
+          browser = await browserManager.launchBrowser(null, { log: browserLog, accountId: account.id });
+          const page = await browserManager.createPage(browser);
 
-          const loginResult = await auth.loginAccount(page, account.id, account.password);
+          // 예전엔 삭제 흐름의 로그인 실패가 실행 로그에 전혀 안 떠서 "원인 모를 삭제 실패"로 보였다
+          safeSend('execution:log', { msg: `${account.id} 로그인 시도 (삭제 ${entries.length}건)` });
+          const loginResult = await auth.loginAccount(page, account.id, account.password, { log: browserLog });
           if (!loginResult.success) {
+            safeSend('execution:log', { msg: `${account.id} 로그인 실패 — 이 계정의 삭제 ${entries.length}건을 건너뜁니다` });
             for (const entry of entries) {
               store.updateDeleteEntry(entry.postUrl, { status: 'failed', error: '로그인 실패' });
               results.push({ postUrl: entry.postUrl, status: 'failed', error: '로그인 실패' });
             }
             continue;
           }
+          safeSend('execution:log', { msg: `${account.id} 로그인 성공 (${loginResult.method})` });
 
           for (const entry of entries) {
             try {
@@ -312,6 +315,7 @@ function registerHandlers(mainWindow) {
               safeSend('execution:log', { msg: `삭제 실패: ${entry.postTitle || entry.postUrl} - ${e.message}` });
             }
           }
+          await auth.saveCookiesAfterAction(page, account.id);
         } finally {
           if (browser) await browser.close().catch(() => {});
         }
@@ -437,10 +441,10 @@ function registerHandlers(mainWindow) {
 
       let browser = null;
       try {
-        browser = await browserManager.launchBrowser(null, { log: browserLog });
-        const page = await browserManager.createPage(browser, { randomFingerprint: true });
+        browser = await browserManager.launchBrowser(null, { log: browserLog, accountId: account.id });
+        const page = await browserManager.createPage(browser);
         console.log(`${accountId} 쿠키 없음, 직접 로그인 시도...`);
-        const loginResult = await auth.loginAccount(page, account.id, account.password);
+        const loginResult = await auth.loginAccount(page, account.id, account.password, { log: browserLog });
         if (!loginResult.success) {
           await browser.close();
           return { success: false, error: '로그인 실패. 계정 정보를 확인하세요.' };
@@ -471,9 +475,9 @@ function registerHandlers(mainWindow) {
 
     let browser = null;
     try {
-      browser = await browserManager.launchBrowser(null, { log: browserLog });
-      const page = await browserManager.createPage(browser, { randomFingerprint: true });
-      await page.setCookie(...cookies);
+      browser = await browserManager.launchBrowser(null, { log: browserLog, accountId });
+      const page = await browserManager.createPage(browser);
+      await auth.restoreSession(page, accountId);
 
       // 네이버 도메인 진입
       await page.goto('https://cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -487,7 +491,7 @@ function registerHandlers(mainWindow) {
         console.log(`${accountId} memberKey 조회 실패, 재로그인 시도...`);
         const account = store.getAccount(accountId);
         if (account) {
-          const loginResult = await auth.loginAccount(page, account.id, account.password);
+          const loginResult = await auth.loginAccount(page, account.id, account.password, { log: browserLog });
           if (loginResult.success) {
             console.log(`${accountId} 재로그인 성공 (${loginResult.method})`);
             await page.goto('https://cafe.naver.com', { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -577,15 +581,17 @@ function registerHandlers(mainWindow) {
             }
           }
 
-          // 계정마다 새 브라우저 (랜덤 UA + 랜덤 해상도)
+          // 계정마다 새 브라우저 (그 계정 전용 프로필)
           let browser = null;
           try {
-            browser = await browserManager.launchBrowser(null, { log: browserLog });
-            const page = await browserManager.createPage(browser, { randomFingerprint: true });
+            browser = await browserManager.launchBrowser(null, { log: browserLog, accountId: account.id });
+            const page = await browserManager.createPage(browser);
 
             // 로그인
             safeSend('like:log', { msg: `${likerId} 로그인...` });
-            const loginResult = await auth.loginAccount(page, account.id, account.password);
+            const loginResult = await auth.loginAccount(page, account.id, account.password, {
+              log: (m) => safeSend('like:log', { msg: m }),
+            });
             if (!loginResult.success) {
               safeSend('like:log', { msg: `${likerId} 로그인 실패` });
               done++;

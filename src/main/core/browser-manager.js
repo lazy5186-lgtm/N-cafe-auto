@@ -1,36 +1,77 @@
 const puppeteer = require('puppeteer-core');
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
+const os = require('os');
+const net = require('net');
 
 // 화면 밖 좌표. 어떤 모니터도 여기 있을 수 없다(-2400은 왼쪽 2560 모니터에 걸릴 수 있어 위험).
 const OFFSCREEN = { left: -32000, top: -32000, width: 1920, height: 1080 };
 
-const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:138.0) Gecko/20100101 Firefox/138.0",
-  "Mozilla/5.0 (X11; Linux x86_64; rv:138.0) Gecko/20100101 Firefox/138.0",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36 Edg/137.0.0.0",
-];
+// 계정별 영속 크롬 프로필 위치.
+// 예전엔 매 실행 새 임시 프로필에 저장 쿠키만 심었다 → 네이버엔 "같은 로그인 세션이 매번 처음 보는
+// 기기 + 다른 IP 로 등장"(= 쿠키 탈취 패턴)으로 보여 세션이 끊기고, 재로그인 때 영수증 캡차가 떴다.
+// 프로필을 계정별로 유지하면 세션·기기 쿠키·localStorage 가 남아 "같은 기기가 IP 만 바꿔 재방문"이 된다.
+// 브라우저 상태라 data/(설정·원고)와 분리해 Local AppData 에 둔다 (Roaming 동기화·OneDrive 잠금 회피).
+const PROFILE_ROOT = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'n-cafe-auto', 'profiles');
 
-const VIEWPORTS = [
-  { width: 1920, height: 1080 },
-  { width: 1366, height: 768 },
-  { width: 1536, height: 864 },
-  { width: 1440, height: 900 },
-  { width: 1680, height: 1050 },
-  { width: 1280, height: 720 },
-];
-
-function getRandomUserAgent() {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+function getProfileDir(accountId) {
+  return path.join(PROFILE_ROOT, String(accountId).replace(/[^a-zA-Z0-9_-]/g, '_'));
 }
 
-function getRandomViewport() {
-  return VIEWPORTS[Math.floor(Math.random() * VIEWPORTS.length)];
+// 계정 삭제 시 프로필도 지운다 (남겨두면 계정 수만큼 디스크에 쌓인다)
+function removeProfile(accountId) {
+  try {
+    fs.rmSync(getProfileDir(accountId), { recursive: true, force: true });
+  } catch (_) {
+    // 크롬이 아직 쓰는 중이면 실패 — 다음 삭제 때 다시 시도되므로 무시
+  }
 }
+
+// 다른 크롬이 이 프로필을 쓰는 중인지 (같은 계정 동시 실행).
+// 크롬은 실행 중 프로필의 lockfile 을 잡고 있어 지울 수 없다. 남아 있는데 지워지면 비정상 종료 흔적이다.
+// 쓰는 중인 프로필로 띄우면 새 크롬이 기존 크롬에 창만 하나 넘기고 종료하므로 미리 걸러낸다.
+function isProfileInUse(dir) {
+  const lock = path.join(dir, 'lockfile');
+  if (!fs.existsSync(lock)) return false;
+  try {
+    fs.unlinkSync(lock);
+    return false;
+  } catch (e) {
+    return e.code === 'EBUSY' || e.code === 'EPERM';
+  }
+}
+
+// 원격 디버깅 포트는 비어 있는 번호를 직접 골라 넘긴다.
+// --remote-debugging-port=0(자동 배정, puppeteer 기본)이면 크롬이 navigator.webdriver 를 true 로 만든다 (Chrome 153 실측).
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+// 크롬 실행 인자. puppeteer 기본 인자는 쓰지 않는다 (ignoreDefaultArgs: true):
+// 기본 인자의 --enable-automation, --disable-features=AcceptCHFrame 등이 "자동화된 크롬"을 드러낸다.
+// 아래는 사이트에서 관측되지 않는 안정성 옵션만 골라 둔 것.
+const CHROME_ARGS = [
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--hide-crash-restore-bubble',
+  // 창이 화면 밖에 있거나 가려져도 타이머·렌더링이 멈추지 않게 (숨김 창 모드에서 필수)
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-popup-blocking',
+  '--disable-prompt-on-repost',
+  '--disable-hang-monitor',
+  // 영속 프로필이 계정 수만큼 쌓이므로 캐시 상한 50MB
+  '--disk-cache-size=52428800',
+];
 
 function findChromePath() {
   const candidates = [
@@ -45,7 +86,8 @@ function findChromePath() {
   return null;
 }
 
-// options.log — 실행 로그(UI)로 진단 줄을 내보내기 위한 콜백
+// options.log       — 실행 로그(UI)로 진단 줄을 내보내기 위한 콜백
+// options.accountId — 지정하면 그 계정 전용 영속 프로필로 띄운다 (없으면 임시 프로필, 닫을 때 삭제)
 async function launchBrowser(chromePath, options = {}) {
   const log = typeof options.log === 'function' ? options.log : () => {};
   const execPath = chromePath || findChromePath();
@@ -64,50 +106,56 @@ async function launchBrowser(chromePath, options = {}) {
     log(`⚠️ 설정을 읽지 못했습니다 — 헤드리스가 꺼진 상태로 진행합니다 (${e.message})`);
   }
 
-  const args = [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-infobars',
-    '--disable-automation',
-    '--disable-blink-features=AutomationControlled',
-    '--ignore-certificate-errors',
-  ];
-
+  // 헤드리스 설정이어도 진짜 헤드리스(--headless)로 띄우지 않는다.
+  // 헤드리스 크롬은 UA 에 "HeadlessChrome" 이 박혀 그 자체로 봇 신호다 (예전엔 UA 위조로 가렸지만
+  // 그 위조가 sec-ch-ua 헤더를 지워 더 큰 신호가 됐다). 대신 일반 창을 화면 밖 좌표에 띄운다.
+  // OS 레벨로 숨기지(ShowWindow SW_HIDE) 않는 이유: 숨긴 창은 페이지가 visibilityState=hidden,
+  // requestAnimationFrame 정지, outerWidth=0 이 된다 (실측). 화면 밖 창은 전부 정상이고 작업표시줄 버튼만 남는다.
+  const args = [...CHROME_ARGS];
   if (headless) {
-    // 헤드리스일 땐 창 생성 플래그(--start-maximized)를 넣지 않는다 (puppeteer #13145).
-    // 창이 생기더라도 어떤 모니터에도 걸리지 않는 좌표에 둔다.
     args.push(`--window-size=${OFFSCREEN.width},${OFFSCREEN.height}`,
-              `--window-position=${OFFSCREEN.left},${OFFSCREEN.top}`,
-              '--disable-gpu');
+              `--window-position=${OFFSCREEN.left},${OFFSCREEN.top}`);
   } else {
     args.push('--start-maximized');
   }
 
-  const browser = await puppeteer.launch({
-    executablePath: execPath,
-    headless: headless ? true : false,
-    ignoreHTTPSErrors: true,
-    defaultViewport: null,
-    args,
-  });
+  // 계정 프로필이 다른 크롬에 잡혀 있거나(같은 계정 동시 실행) 손상됐으면 임시 프로필로라도 진행한다
+  let profileDir = options.accountId ? getProfileDir(options.accountId) : null;
+  if (profileDir && fs.existsSync(profileDir) && isProfileInUse(profileDir)) {
+    log(`⚠️ ${options.accountId} 프로필을 다른 크롬이 사용 중입니다 — 이번엔 임시 프로필로 진행합니다`);
+    profileDir = null;
+  }
+  const attempts = profileDir ? [profileDir, null] : [null];
+  let browser = null;
+  let usedProfile = null;
+  let lastErr = null;
+  for (const dir of attempts) {
+    try {
+      if (dir) fs.mkdirSync(dir, { recursive: true });
+      const port = await getFreePort();
+      browser = await puppeteer.launch({
+        executablePath: execPath,
+        headless: false,
+        ignoreDefaultArgs: true,
+        ignoreHTTPSErrors: true,
+        defaultViewport: null,
+        args: [...args, `--remote-debugging-port=${port}`, ...(dir ? [`--user-data-dir=${dir}`] : []), 'about:blank'],
+      });
+      usedProfile = dir;
+      break;
+    } catch (e) {
+      lastErr = e;
+      if (dir) log(`⚠️ 계정 프로필로 크롬을 열지 못했습니다 (${String(e.message).split('\n')[0]}) — 임시 프로필로 진행합니다`);
+    }
+  }
+  if (!browser) throw lastErr;
 
-  // 헤드리스가 "실제로" 걸렸는지 검증한다.
-  // browser.version()은 헤드리스에서도 "Chrome/x"를 돌려줘 구분이 안 되고,
-  // browser.userAgent()만 "HeadlessChrome/x"로 구분된다.
   let chromeUA = '';
   try { chromeUA = await browser.userAgent(); } catch (_) {}
-  const realHeadless = /Headless/i.test(chromeUA);
   const chromeVer = (chromeUA.match(/Chrome\/([\d.]+)/) || [])[1] || '알 수 없음';
-  log(`[브라우저] Chrome ${chromeVer} · 헤드리스 설정=${headless ? 'ON' : 'OFF'} · 실제=${realHeadless ? '헤드리스' : '일반 창'}`);
+  log(`[브라우저] Chrome ${chromeVer} · 프로필=${usedProfile ? options.accountId : '임시'} · ${headless ? '숨김 창(헤드리스 설정)' : '일반 창'}`);
 
-  if (headless) {
-    if (!realHeadless) {
-      // 여기 걸리면 크롬이 --headless 를 무시한 것 → 화면에 흰 창이 뜬다.
-      // 자동화 자체는 계속 되므로, 창만 OS 레벨에서 숨겨 정상 동작시킨다.
-      log('⚠️ 크롬이 헤드리스로 뜨지 않았습니다 (크롬 버전 문제) — 창을 강제로 숨깁니다');
-    }
-    await hideBrowserWindows(browser, log, !realHeadless);
-  }
+  if (headless) await hideBrowserWindows(browser, log);
 
   return browser;
 }
@@ -126,88 +174,12 @@ async function moveWindowOffscreen(page) {
   }
 }
 
-// Win32 ShowWindow(SW_HIDE)로 해당 크롬 프로세스의 "보이는" 창을 전부 숨긴다.
-// CDP로 못 옮기는 창(크롬이 헤드리스를 무시하고 띄운 창 포함)까지 확실히 사라지고,
-// 숨긴 뒤에도 자동화는 정상 동작한다(검증 완료). 다른 크롬 창은 PID로 걸러 건드리지 않는다.
-function hideChromeWindowsWin32(pid) {
-  return new Promise((resolve) => {
-    if (process.platform !== 'win32' || !pid) return resolve(0);
-    const script = `
-$ErrorActionPreference='SilentlyContinue'
-$ProgressPreference='SilentlyContinue'
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public class NCAHide {
-  public delegate bool EnumProc(IntPtr h, IntPtr l);
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f, IntPtr l);
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);
-  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
-  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
-  [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
-}
-"@
-$n = 0
-$cb = [NCAHide+EnumProc]{
-  param($h, $l)
-  $p = 0
-  [void][NCAHide]::GetWindowThreadProcessId($h, [ref]$p)
-  if ($p -eq ${pid} -and [NCAHide]::IsWindowVisible($h)) {
-    $sb = New-Object System.Text.StringBuilder 256
-    [void][NCAHide]::GetClassName($h, $sb, 256)
-    if ($sb.ToString() -like 'Chrome_WidgetWin*') { [void][NCAHide]::ShowWindow($h, 0); $script:n++ }
-  }
-  return $true
-}
-[void][NCAHide]::EnumWindows($cb, [IntPtr]::Zero)
-Write-Output "hidden=$n"
-`;
-    const b64 = Buffer.from(script, 'utf16le').toString('base64');
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', b64],
-      { timeout: 15000, windowsHide: true },
-      (err, stdout) => {
-        if (err) return resolve(null);
-        const m = /hidden=(\d+)/.exec(String(stdout));
-        resolve(m ? parseInt(m[1], 10) : 0);
-      });
-  });
-}
-
-// forceHide=true 는 "헤드리스를 켰는데 크롬이 일반 창을 띄운" 비정상 상황에서만.
-// 정상 헤드리스면 애초에 화면에 그려지는 창이 없으므로 PowerShell을 부르지 않는다
-// (불필요한 프로세스 생성 + 백신 오탐 회피).
-async function hideBrowserWindows(browser, log = () => {}, forceHide = false) {
-  const pid = browser.process() ? browser.process().pid : null;
-
-  let sweeping = false;
-  let pending = false;
-  const sweep = async () => {
-    if (!forceHide || !pid) return;
-    if (sweeping) { pending = true; return; }
-    sweeping = true;
-    try {
-      const n = await hideChromeWindowsWin32(pid);
-      if (n === null) log('⚠️ 창 숨김 실패(PowerShell 실행 불가) — 빈 크롬 창이 보일 수 있습니다');
-      else if (n > 0) log(`[브라우저] 화면에 뜬 크롬 창 ${n}개를 숨겼습니다`);
-    } finally {
-      sweeping = false;
-      if (pending) { pending = false; setTimeout(sweep, 300); }
-    }
-  };
-
+// 숨김 창 모드(헤드리스 설정): 모든 창을 화면 밖 좌표로 보낸다.
+async function hideBrowserWindows(browser, log = () => {}) {
   try {
     const pages = await browser.pages();
     for (const p of pages) await moveWindowOffscreen(p);
   } catch (_) { /* ignore */ }
-  await sweep();
-
-  // 새 탭/팝업이 생기면 크롬이 숨긴 창을 다시 표시하므로 주기적으로도 쓸어준다
-  if (forceHide) {
-    const timer = setInterval(sweep, 5000);
-    if (timer.unref) timer.unref();
-    browser.on('disconnected', () => clearInterval(timer));
-  }
 
   // 사이트가 window.open으로 여는 팝업(네이버 새 기기/캡차 인증 등)은 런치 플래그를
   // 물려받지 않는다. 팝업 URL을 로그에 남겨 "흰 창"의 정체를 추적 가능하게 한다.
@@ -222,35 +194,26 @@ async function hideBrowserWindows(browser, log = () => {}, forceHide = false) {
       const p = await target.page();
       if (p) await moveWindowOffscreen(p);
     } catch (_) { /* ignore */ }
-    sweep();
   });
 }
 
-async function setupPage(page, options) {
-  const viewport = (options && options.randomFingerprint) ? getRandomViewport() : null;
-  if (viewport) {
-    await page.setViewport(viewport);
-  } else {
-    const screen = await page.evaluate(() => ({
-      width: window.screen.availWidth,
-      height: window.screen.availHeight,
-    }));
-    await page.setViewport({ width: screen.width, height: screen.height });
-  }
-  await page.evaluateOnNewDocument(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-  });
-  await page.setUserAgent(getRandomUserAgent());
+// UA·해상도·navigator.webdriver 를 위조하지 않는다 (2026-09 실측 — 위조가 오히려 봇 신호였다):
+//  - setUserAgent() 는 sec-ch-ua 헤더와 navigator.userAgentData 를 지워 "UA 는 크롬인데 클라이언트 힌트 없음"이
+//    되고, 풀에 섞여 있던 Firefox UA 는 크롬 엔진(window.chrome 등)과 정면으로 모순됐다.
+//  - 랜덤 setViewport 는 1920 창 안에 1366 화면이 들어간, 실제 브라우저에선 불가능한 크기를 만들었다.
+//  - webdriver 덮어쓰기는 navigator 에 자체 속성 흔적을 남긴다. --enable-automation 을 빼고 디버깅 포트를
+//    직접 지정하므로(getFreePort) 원래부터 false 다.
+async function setupPage(page) {
   page.on('dialog', async (dialog) => { try { await dialog.accept(); } catch (_) {} });
 }
 
 // 우리가 직접 연 탭인지 구분하기 위한 표시 (targetcreated 로그 노이즈 제거용)
 let lastOwnPageAt = 0;
 
-async function createPage(browser, options) {
+async function createPage(browser) {
   lastOwnPageAt = Date.now();
   const page = await browser.newPage();
-  await setupPage(page, options);
+  await setupPage(page);
   return page;
 }
 
@@ -264,6 +227,8 @@ function randomDelay(min = 1000, max = 3000) {
 
 module.exports = {
   findChromePath,
+  getProfileDir,
+  removeProfile,
   launchBrowser,
   setupPage,
   createPage,
