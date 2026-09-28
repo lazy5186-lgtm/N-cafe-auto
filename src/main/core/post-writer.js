@@ -695,7 +695,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     await delay(1000);
   }
 
-  const finalUrl = page.url();
+  const finalUrl = normalizeArticleUrl(page.url());
 
   // URL에 articles/ 또는 게시글 번호가 포함되어 있으면 성공
   if (finalUrl.includes('articles/') && !finalUrl.includes('articles/write')) {
@@ -713,4 +713,29 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   throw new Error('게시글 등록에 실패했습니다. 글쓰기 페이지에서 벗어나지 못했습니다.');
 }
 
-module.exports = { writePost, navigateToWritePage, uploadImage, typeTextInEditor, selectBoard, acceptConfirmLayer };
+/**
+ * 등록 후 이동한 주소를 `https://cafe.naver.com/<카페>/<articleid>` 로 정규화.
+ * 네이버가 등록 후 `?iframe_url_utf8=%2Fca-fe%2Fca-fe%2FArticleRead.nhn...` 처럼
+ * 경로가 중복된 주소로 보내는 경우가 있어(2026-09) 그대로 저장하면 접속이 안 되고
+ * 댓글도 "댓글 입력 영역 없음"으로 실패한다. 짧은 주소는 #cafe_main iframe 으로
+ * 정상 로드됨을 실측했다. 카페 주소나 articleid 를 못 뽑으면 원래 주소를 그대로 쓴다.
+ */
+function normalizeArticleUrl(url) {
+  try {
+    const u = new URL(url);
+    if (!/(^|\.)cafe\.naver\.com$/.test(u.hostname)) return url;
+    // 이중 인코딩(%253F, %2526)까지 풀기
+    let s = url;
+    for (let i = 0; i < 3; i++) {
+      try { const d = decodeURIComponent(s); if (d === s) break; s = d; } catch (_) { break; }
+    }
+    const m = s.match(/[?&]articleid=(\d+)/i) || s.match(/\/articles\/(\d+)/);
+    const slug = u.pathname.split('/').filter(Boolean)[0];
+    if (!m || !slug || /^(ca-fe|f-e)$/i.test(slug) || !/^[A-Za-z0-9_-]+$/.test(slug)) return url;
+    return `https://cafe.naver.com/${slug}/${m[1]}`;
+  } catch (_) {
+    return url;
+  }
+}
+
+module.exports = { writePost, normalizeArticleUrl, navigateToWritePage, uploadImage, typeTextInEditor, selectBoard, acceptConfirmLayer };
