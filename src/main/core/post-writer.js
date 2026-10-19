@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { delay } = require('./browser-manager');
+const { delay, ensureForeground } = require('./browser-manager');
 
 async function navigateToWritePage(page, cafeId, menuId, log = console.log) {
   const writeUrl = `https://cafe.naver.com/ca-fe/cafes/${cafeId}/articles/write?boardType=L`;
@@ -23,6 +23,7 @@ async function navigateToWritePage(page, cafeId, menuId, log = console.log) {
         if (navError) log(`페이지 로딩이 끝나지 않았지만 에디터가 떠서 계속 진행합니다 (${navError})`);
         log('에디터 로드 완료');
         await delay(2000);
+        await ensureForeground(page, log);
         return;
       } catch (_) {
         log(`에디터가 뜨지 않음 — 재시도 (${attempt}/3)`);

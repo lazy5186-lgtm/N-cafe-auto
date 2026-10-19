@@ -1,7 +1,24 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { delay } = require('./browser-manager');
+const { delay, ensureForeground } = require('./browser-manager');
+
+const noop = () => {};
+
+/**
+ * ElementHandle.click() 은 페이지가 렌더링을 멈춘 상태(백그라운드 탭·최소화)면 180초 동안 멈춘다.
+ * 10초 안에 끝나지 않으면 DOM focus+click 으로 대신한다 (렌더링 없이도 동작).
+ */
+async function clickWithFallback(handle, log) {
+  const result = await Promise.race([
+    handle.click().then(() => 'ok'),
+    delay(10000).then(() => 'timeout'),
+  ]);
+  if (result === 'timeout') {
+    log('⚠️ 클릭 응답 없음(10초, 화면이 가려진 상태) — 직접 클릭으로 대신합니다');
+    await handle.evaluate((el) => { el.focus(); el.click(); });
+  }
+}
 
 async function dumpDiagnosis(page, frame, label) {
   try {
@@ -69,10 +86,11 @@ async function uploadFileToInput(page, frame, labelSelector, filePath) {
   await fileChooser.accept([resolved]);
 }
 
-async function navigateToArticle(page, articleUrl) {
-  console.log('게시글 이동:', articleUrl);
+async function navigateToArticle(page, articleUrl, log = noop) {
+  log(`게시글 이동: ${articleUrl}`);
   await page.goto(articleUrl, { waitUntil: 'networkidle2', timeout: 30000 });
   await delay(3000);
+  await ensureForeground(page, log);
 
   // iframe 접근 시도
   let frame = page;
@@ -142,7 +160,7 @@ async function crawlComments(frame) {
   return comments;
 }
 
-async function writeComment(page, frame, text, imagePath) {
+async function writeComment(page, frame, text, imagePath, log = noop) {
   text = text || '';
   console.log(`댓글 작성 시작: "${text.substring(0, 30)}..."`);
 
@@ -170,8 +188,9 @@ async function writeComment(page, frame, text, imagePath) {
     throw new Error('댓글 입력 영역을 찾을 수 없습니다');
   }
 
+  log('댓글 입력창 찾음 — 입력 중...');
   const textarea = await frame.$(foundSelector);
-  await textarea.click();
+  await clickWithFallback(textarea, log);
   await delay(500);
 
   await frame.evaluate((selector, commentText) => {
@@ -213,7 +232,7 @@ async function writeComment(page, frame, text, imagePath) {
   for (const sel of submitSelectors) {
     const btn = await frame.$(sel);
     if (btn) {
-      await btn.click();
+      await clickWithFallback(btn, log);
       submitted = true;
       console.log(`댓글 등록 버튼 클릭 (${sel})`);
       break;
@@ -245,7 +264,7 @@ async function writeComment(page, frame, text, imagePath) {
  * 네이버 카페에서 대댓글은 모두 flat 구조 (부모 댓글 아래 reply로 표시)
  * 대대댓글은 reply의 "답글쓰기"를 클릭하면 @멘션 형태로 작성됨
  */
-async function writeReply(page, frame, targetCommentText, replyText, replyImagePath) {
+async function writeReply(page, frame, targetCommentText, replyText, replyImagePath, log = noop) {
   targetCommentText = targetCommentText || '';
   replyText = replyText || '';
   console.log(`대댓글 작성 시작: 대상="${targetCommentText.substring(0, 30)}" 답글="${replyText.substring(0, 30)}"`);
@@ -385,7 +404,8 @@ async function writeReply(page, frame, targetCommentText, replyText, replyImageP
   }
 
   // textarea 클릭 후 포커스
-  await textarea.click();
+  log('답글 입력창 찾음 — 입력 중...');
+  await clickWithFallback(textarea, log);
   await delay(500);
 
   // 기존 @멘션 확인 (대대댓글에서 자동 삽입됨)

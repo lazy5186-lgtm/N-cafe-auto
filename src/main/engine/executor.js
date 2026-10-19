@@ -324,8 +324,8 @@ class Executor extends EventEmitter {
                 }
 
                 try {
-                  const replyFrame = await commentWriter.navigateToArticle(page, postUrl);
-                  await commentWriter.writeReply(page, replyFrame, parentText, reply.text, reply.imagePath);
+                  const replyFrame = await commentWriter.navigateToArticle(page, postUrl, (m) => this.log(m));
+                  await commentWriter.writeReply(page, replyFrame, parentText, reply.text, reply.imagePath, (m) => this.log(m));
                   replyResult.status = 'success';
                   this.log(`대댓글 작성 완료 (${replyAccId}): "${(reply.text || '').substring(0, 20)}"`);
                 } catch (replyErr) {
@@ -375,8 +375,8 @@ class Executor extends EventEmitter {
 
               let mainCmtSucceeded = false;
               try {
-                const frame = await commentWriter.navigateToArticle(page, postUrl);
-                await commentWriter.writeComment(page, frame, cmt.text, cmt.imagePath);
+                const frame = await commentWriter.navigateToArticle(page, postUrl, (m) => this.log(m));
+                await commentWriter.writeComment(page, frame, cmt.text, cmt.imagePath, (m) => this.log(m));
                 cmtResult.status = 'success';
                 mainCmtSucceeded = true;
                 this.log(`댓글 작성 완료 (${cmtAccId})`);

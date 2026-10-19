@@ -378,9 +378,15 @@ function applyAccountSearchFilter() {
   syncAccountSelectAllState();
 }
 
-// 계정의 로그인 상태 표시 계산 — testStatus가 없으면 쿠키 유무로 폴백
+// 계정의 로그인 상태 계산 — testStatus가 없으면(구버전 계정) 쿠키 유무로 폴백.
+// 새로 등록한 계정은 testStatus: 'untested' 로 저장되므로 빈 값처럼 취급하면 안 된다.
+// 표시와 "미테스트만 테스트" 필터가 반드시 이 함수 하나를 기준으로 삼는다.
+function getLoginStatus(acc, hasCookies) {
+  return acc.testStatus || (hasCookies ? 'success' : 'untested');
+}
+
 function getLoginStatusDisplay(acc, hasCookies) {
-  const status = acc.testStatus || (hasCookies ? 'success' : 'untested');
+  const status = getLoginStatus(acc, hasCookies);
   if (status === 'success') return { text: '성공', color: '#66bb6a' };
   if (status === 'fail') return { text: '실패', color: '#ef5350' };
   return { text: '• 미테스트', color: '#8892b0' };
@@ -597,7 +603,7 @@ function setupAddAccount() {
     runBatchLoginTest(() => true, e.currentTarget, '계정이 없습니다.')
   );
   document.getElementById('btn-login-untested').addEventListener('click', (e) =>
-    runBatchLoginTest((a, ctx) => !a.testStatus && !ctx.hasCookies, e.currentTarget, '미테스트 계정이 없습니다.')
+    runBatchLoginTest((a, ctx) => getLoginStatus(a, ctx.hasCookies) === 'untested', e.currentTarget, '미테스트 계정이 없습니다.')
   );
   document.getElementById('btn-login-failed').addEventListener('click', (e) =>
     runBatchLoginTest(a => a.testStatus === 'fail', e.currentTarget, '실패한 계정이 없습니다.')

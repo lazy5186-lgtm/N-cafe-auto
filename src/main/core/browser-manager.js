@@ -217,6 +217,19 @@ async function createPage(browser) {
   return page;
 }
 
+// 탭이 다른 탭 뒤로 밀렸거나 창이 최소화되면 페이지가 visibilityState=hidden 이 되어 렌더링이 멈춘다.
+// 그 상태에서 ElementHandle.click() 은 내부의 IntersectionObserver 콜백을 영원히 기다리다
+// protocolTimeout(180초) 으로 "Runtime.callFunctionOn timed out" 을 낸다 (2026-10 실측: 숨김 창 + 백그라운드 탭/최소화).
+// bringToFront 는 창을 화면 밖 좌표 그대로 둔 채 normal 상태로 되돌린다. 일반 창 모드에서 포커스를
+// 뺏지 않도록 hidden 일 때만 호출한다.
+async function ensureForeground(page, log = () => {}) {
+  const vis = await page.evaluate(() => document.visibilityState).catch(() => null);
+  if (vis !== 'hidden') return;
+  log('[브라우저] 작업 탭이 가려져 있어 앞으로 가져옵니다 (탭 전환/창 최소화 감지)');
+  await page.bringToFront().catch(() => {});
+  await delay(300);
+}
+
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -232,6 +245,7 @@ module.exports = {
   launchBrowser,
   setupPage,
   createPage,
+  ensureForeground,
   delay,
   randomDelay,
 };
