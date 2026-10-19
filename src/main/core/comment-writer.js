@@ -1,24 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-const { delay, ensureForeground } = require('./browser-manager');
+const { delay, ensureForeground, clickWithFallback } = require('./browser-manager');
 
 const noop = () => {};
-
-/**
- * ElementHandle.click() 은 페이지가 렌더링을 멈춘 상태(백그라운드 탭·최소화)면 180초 동안 멈춘다.
- * 10초 안에 끝나지 않으면 DOM focus+click 으로 대신한다 (렌더링 없이도 동작).
- */
-async function clickWithFallback(handle, log) {
-  const result = await Promise.race([
-    handle.click().then(() => 'ok'),
-    delay(10000).then(() => 'timeout'),
-  ]);
-  if (result === 'timeout') {
-    log('⚠️ 클릭 응답 없음(10초, 화면이 가려진 상태) — 직접 클릭으로 대신합니다');
-    await handle.evaluate((el) => { el.focus(); el.click(); });
-  }
-}
 
 async function dumpDiagnosis(page, frame, label) {
   try {

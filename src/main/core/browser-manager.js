@@ -230,6 +230,31 @@ async function ensureForeground(page, log = () => {}) {
   await delay(300);
 }
 
+/**
+ * ElementHandle.click() 은 페이지가 렌더링을 멈춘 상태(백그라운드 탭·최소화)면 180초 동안 멈춘다.
+ * (같은 상태에서 keyboard.type / evaluate / waitForSelector 는 정상 — 클릭만 문제, 2026-10 실측)
+ * 클릭 전에 가려졌는지 확인해 앞으로 가져오고, 그래도 10초 안에 끝나지 않으면 DOM focus+click 으로 대신한다 (렌더링 없이도 동작).
+ */
+async function clickWithFallback(handle, log = () => {}) {
+  // 가려져 있으면 먼저 앞으로 — 그러면 진짜 클릭이 바로 통한다 (폴백은 그 사이 다시 가려질 때 대비)
+  try { await ensureForeground(handle.frame.page(), log); } catch (_) {}
+  const result = await Promise.race([
+    handle.click().then(() => 'ok'),
+    delay(10000).then(() => 'timeout'),
+  ]);
+  if (result === 'timeout') {
+    log('⚠️ 클릭 응답 없음(10초, 화면이 가려진 상태) — 직접 클릭으로 대신합니다');
+    await handle.evaluate((el) => { el.focus(); el.click(); });
+  }
+}
+
+// page.click(selector) 대체 — 요소가 없으면 page.click 과 같은 에러를 낸다
+async function clickSelector(page, selector, log = () => {}) {
+  const handle = await page.$(selector);
+  if (!handle) throw new Error(`No element found for selector: ${selector}`);
+  await clickWithFallback(handle, log);
+}
+
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -246,6 +271,8 @@ module.exports = {
   setupPage,
   createPage,
   ensureForeground,
+  clickWithFallback,
+  clickSelector,
   delay,
   randomDelay,
 };

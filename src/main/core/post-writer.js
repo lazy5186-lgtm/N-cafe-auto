@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { delay, ensureForeground } = require('./browser-manager');
+const { delay, ensureForeground, clickWithFallback, clickSelector } = require('./browser-manager');
 
 async function navigateToWritePage(page, cafeId, menuId, log = console.log) {
   const writeUrl = `https://cafe.naver.com/ca-fe/cafes/${cafeId}/articles/write?boardType=L`;
@@ -80,7 +80,7 @@ async function uploadImage(page, filePath, log = console.log) {
     // 폴백: fileChooser 방식
     const [fileChooser] = await Promise.all([
       page.waitForFileChooser({ timeout: 10000 }),
-      page.click('button.se-image-toolbar-button'),
+      clickSelector(page, 'button.se-image-toolbar-button', log),
     ]);
     await fileChooser.accept([filePath]);
     log('이미지 업로드 완료 (fileChooser)');
@@ -92,7 +92,7 @@ async function uploadImage(page, filePath, log = console.log) {
   }
 }
 
-async function focusEditorByClick(page) {
+async function focusEditorByClick(page, log = console.log) {
   try {
     // 타겟 단락 결정: 마지막 이미지보다 뒤에 있는 텍스트 컴포넌트의 마지막 단락을 우선 선택
     // (이미지 여러 개 섞인 원고에서도 항상 "가장 최근 이미지 이후"에 커서를 놓도록)
@@ -133,7 +133,7 @@ async function focusEditorByClick(page) {
 
     console.log(`[focusEditorByClick] 타겟 선정:`, JSON.stringify(targetPicked));
     if (!targetPicked.ok) {
-      await page.click('.se-component-content').catch(() => {});
+      await clickSelector(page, '.se-component-content', log).catch(() => {});
       await delay(300);
       return false;
     }
@@ -157,7 +157,7 @@ async function focusEditorByClick(page) {
     });
 
     await last.evaluate(el => el.scrollIntoView({ block: 'center' }));
-    await last.click();
+    await clickWithFallback(last, log);
     await delay(300);
 
     // 오버레이 pointer-events 원복
@@ -311,7 +311,7 @@ async function typeTextInEditor(page, text) {
   console.log(`텍스트 입력 완료 (${typedTotal}자)`);
 }
 
-async function selectBoard(page, menuId, boardName) {
+async function selectBoard(page, menuId, boardName, log = console.log) {
   console.log(`게시판 선택 시도: menuId=${menuId}, name="${boardName}"`);
 
   try {
@@ -322,7 +322,7 @@ async function selectBoard(page, menuId, boardName) {
       return false;
     }
 
-    await boardSelectButton.click();
+    await clickWithFallback(boardSelectButton, log);
     await page.waitForSelector('.option_list .item', { timeout: 10000 });
     await delay(500);
 
@@ -343,7 +343,7 @@ async function selectBoard(page, menuId, boardName) {
     if (menuId) {
       for (let i = 0; i < boardItems.length; i++) {
         if (String(itemsInfo[i].dataValue) === String(menuId)) {
-          await boardItems[i].click();
+          await clickWithFallback(boardItems[i], log);
           console.log(`게시판 menuId 매칭 선택: "${itemsInfo[i].text}" (menuId=${itemsInfo[i].dataValue})`);
           boardFound = true;
           break;
@@ -369,7 +369,7 @@ async function selectBoard(page, menuId, boardName) {
         console.log(`⚠️ 이름 "${boardName}"으로 ${matches.length}개 매칭됨: ${matches.map(m => `menuId=${m.dataValue}`).join(', ')} — 첫 번째 선택 (menuId 정보로 정확히 선택하려면 게시판 크롤링 후 다시 선택하세요)`);
       }
       if (matches.length >= 1) {
-        await boardItems[matches[0].idx].click();
+        await clickWithFallback(boardItems[matches[0].idx], log);
         console.log(`게시판 이름 매칭 선택: "${matches[0].text}" (menuId=${matches[0].dataValue})`);
         boardFound = true;
       }
@@ -467,7 +467,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
 
   // === 1. 게시판 선택 (안내 문구/양식 로드) ===
   log(`게시판 선택: ${boardName || menuId}`);
-  const boardSelected = await selectBoard(page, menuId, boardName);
+  const boardSelected = await selectBoard(page, menuId, boardName, log);
   if (!boardSelected) {
     throw new Error(`게시판 선택 실패: ${boardName || menuId}`);
   }
@@ -499,9 +499,9 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
     // 안내 문구 없음 → 에디터 auto-focus 안 되므로 직접 클릭
     const editorBody = await page.$('.se-component-content .se-text-paragraph');
     if (editorBody) {
-      await editorBody.click();
+      await clickWithFallback(editorBody, log);
     } else {
-      await page.click('.se-component-content');
+      await clickSelector(page, '.se-component-content', log);
     }
     await delay(1500);
     console.log('빈 에디터 클릭 → 작성 시작');
@@ -533,7 +533,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
         await delay(200);
 
         // 에디터 포커스 복구 (이미지 뒤의 빈 텍스트 컴포넌트 클릭)
-        const focused = await focusEditorByClick(page);
+        const focused = await focusEditorByClick(page, log);
         if (!focused) {
           console.log(`[세그먼트 ${si}] 이미지 후 에디터 포커스 실패 — 다음 세그먼트가 있으면 입력 불가능할 수 있음`);
         }
@@ -575,7 +575,7 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   const titleElement = await page.$('.textarea_input');
   if (titleElement) {
     await titleElement.evaluate(el => el.scrollIntoView({ block: 'center' }));
-    await titleElement.click();
+    await clickWithFallback(titleElement, log);
     await delay(300);
     // JS focus 중복 호출 — click만으로 focus가 안 잡히는 케이스 방어
     await titleElement.evaluate(el => el.focus && el.focus());
@@ -623,14 +623,14 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
   // === 4. 공개 설정 (DOM 새로 조회) ===
   try {
     await page.waitForSelector('.btn_open_set', { timeout: 5000 });
-    await page.click('.btn_open_set');
+    await clickSelector(page, '.btn_open_set', log);
     await delay(1000);
     const radioSelector = (visibility === 'member') ? 'input#member[name="public"]' : 'input#all[name="public"]';
     await page.waitForSelector(radioSelector, { timeout: 5000 });
-    await page.click(radioSelector);
+    await clickSelector(page, radioSelector, log);
     console.log(`공개 설정: ${visibility === 'member' ? '멤버공개' : '전체공개'} 선택`);
     await delay(500);
-    await page.click('.btn_open_set').catch(() => {});
+    await clickSelector(page, '.btn_open_set', log).catch(() => {});
     await delay(500);
   } catch (e) {
     console.log('공개 설정 변경 실패 (무시):', e.message);
@@ -647,7 +647,8 @@ async function writePost(page, cafeId, menuId, title, bodySegments, boardName, v
 
   // 클릭 전에 네비게이션 대기를 걸어두어야 모달 처리 중에 일어나는 이동을 놓치지 않는다
   const navPromise = page.waitForNavigation({ timeout: 30000 }).then(() => true).catch(() => false);
-  await writeButton.click();
+  await ensureForeground(page, log);
+  await clickWithFallback(writeButton, log);
   console.log('등록 버튼 클릭 완료, 네비게이션 대기...');
 
   // 전체공개 확인 레이어 팝업("계속할까요?") 처리 — 안 뜨면 그냥 지나감
