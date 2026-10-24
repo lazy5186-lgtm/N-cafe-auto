@@ -526,10 +526,13 @@ function setupAddAccount() {
     const result = await window.api.addAccount({ id, password: pw });
     if (!result.success) return showToast('계정 추가 실패');
 
-    accounts.push({ id, password: pw, nickname: '' });
+    // main 이 저장하는 값과 똑같이 testStatus 를 넣는다 — 빠지면 getLoginStatus 가 쿠키 유무로 폴백해
+    // 화면엔 미테스트인데 "미테스트만 테스트"에선 빠지는 어긋남이 생긴다
+    const newAcc = { id, password: pw, nickname: '', testStatus: 'untested' };
+    accounts.push(newAcc);
     idInput.value = '';
     pwInput.value = '';
-    appendAccountRow({ id, password: pw }, false);
+    appendAccountRow(newAcc, false);
   });
 
   // Enter 키
@@ -560,8 +563,9 @@ function setupAddAccount() {
 
       const result = await window.api.addAccount({ id, password: pw });
       if (result.success) {
-        accounts.push({ id, password: pw, nickname: '' });
-        appendAccountRow({ id, password: pw }, false);
+        const newAcc = { id, password: pw, nickname: '', testStatus: 'untested' };
+        accounts.push(newAcc);
+        appendAccountRow(newAcc, false);
         added++;
       } else {
         skipped++;

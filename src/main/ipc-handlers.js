@@ -46,7 +46,12 @@ function registerHandlers(mainWindow) {
   });
 
   ipcMain.handle('accounts:delete-all', () => {
-    for (const acc of store.loadAccounts()) browserManager.removeProfile(acc.id);
+    // 쿠키도 같이 지운다 — 남겨두면 같은 아이디를 다시 등록했을 때 옛 쿠키로 "성공"처럼 보여
+    // "미테스트만 테스트"에서 빠졌다 (단건 삭제는 store.deleteAccount 가 이미 지운다)
+    for (const acc of store.loadAccounts()) {
+      browserManager.removeProfile(acc.id);
+      store.deleteAccount(acc.id);
+    }
     store.saveAccounts([]);
     return { success: true };
   });
