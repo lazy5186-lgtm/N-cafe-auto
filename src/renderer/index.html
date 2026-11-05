@@ -162,6 +162,19 @@
           </div>
         </div>
 
+        <!-- 업데이트 서버 -->
+        <div class="section-card">
+          <div class="section-title">업데이트 서버 주소</div>
+          <div class="form-row" style="gap:8px; align-items:center;">
+            <input type="text" id="update-server-url" class="input" style="width:280px; padding:3px 6px; font-size:12px;" placeholder="비워두면 기본 주소 사용">
+            <button class="btn btn-sm btn-secondary" id="btn-upd-ping">연결 테스트</button>
+            <span id="upd-ping-status" style="font-size:12px;"></span>
+          </div>
+          <div style="margin-top:6px; font-size:11px; color:#5a6485;">
+            안내받은 경우에만 변경하세요. IP만 입력해도 됩니다 (예: 1.2.3.4 → http://1.2.3.4:9250). 저장 후 앱을 다시 켜면 새 주소에서 업데이트를 확인합니다.
+          </div>
+        </div>
+
         <!-- 데이터 내보내기/가져오기 -->
         <div class="section-card">
           <div class="section-title">데이터 내보내기 / 가져오기</div>

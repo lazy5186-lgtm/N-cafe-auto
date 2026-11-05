@@ -106,6 +106,7 @@ contextBridge.exposeInMainWorld('api', {
   upd: {
     status: () => ipcRenderer.invoke('upd:status'),
     check: () => ipcRenderer.invoke('upd:check'),
+    ping: (url) => ipcRenderer.invoke('upd:ping', url),
     apply: () => ipcRenderer.invoke('upd:apply'),
     restart: () => ipcRenderer.invoke('upd:restart'),
     onReady: (cb) => { ipcRenderer.on('upd:ready', (_e, d) => cb(d)); },

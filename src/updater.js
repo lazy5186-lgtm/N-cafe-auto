@@ -45,12 +45,12 @@ function userDataDir() {
 // 부트스트랩이 로드하는 진입점(버전 폴더 루트 기준 상대). 이게 없으면 그 버전은 무효로 본다.
 const ENTRY = path.join('src', 'main', 'app-main.js');
 
-// 배포 서버 기본값. ⚠ "내 PC + 포트포워딩/DDNS" 배포:
-//   테스트는 localhost 로, 실제 배포 전에는 아래를 **본인 DDNS 주소로 반드시 교체**한다
-//   (예: 'http://mycafe.iptime.org:9250'). 고객 앱에는 이 값이 그대로 박혀 나간다.
-//   settings.json 의 updateServerUrl 이 있으면 그 값이 우선한다(리빌드 없이 주소 변경 가능).
-// ⚠ update-server/server.js 의 포트(9250)와 반드시 일치.
-const DEFAULT_SERVER_URL = 'http://127.0.0.1:9250';
+// 배포 서버 기본값 = 개발자 집 PC 의 공인 IP (KT, 공유기 9250 포트포워딩 → ASC/update-hub).
+//   고객 앱에는 이 값이 그대로 박혀 나간다. DDNS 는 쓰지 않기로 했다(2026-11-05) →
+//   ⚠ 집 IP 가 바뀌면 고객이 설정 탭 "업데이트 서버 주소"에 새 IP 를 직접 넣어야 한다
+//   (settings.updateServerUrl 이 이 기본값보다 우선). IP 만 넣어도 http://<IP>:9250 으로 보정된다.
+// ⚠ update-hub/apps.json 의 n-cafe-auto 포트(9250)와 반드시 일치.
+const DEFAULT_SERVER_URL = 'http://61.99.10.215:9250';
 
 const appsRoot = () => path.join(userDataDir(), 'app');
 const pointerPath = () => path.join(appsRoot(), 'current.json');
@@ -174,8 +174,31 @@ async function ping(serverUrl) {
   try { return JSON.parse(r.body.toString('utf8')); } catch { throw new Error('업데이트 서버가 아닌 것 같습니다'); }
 }
 
+/**
+ * 이 설치본의 고유 ID (무작위 UUID, 최초 1회 생성 후 userData/install-id 에 보관).
+ * 서버가 "몇 대가 쓰는지"를 세는 데만 쓴다. 이 앱은 자동화 중 IP 를 계속 바꾸므로
+ * IP 만으로 세면 사용자 수가 부풀려진다. app/ 폴더 밖에 둬야 revertToBundled() 에 안 지워진다.
+ */
+function installId() {
+  const file = path.join(userDataDir(), 'install-id');
+  try {
+    const id = fs.readFileSync(file, 'utf8').trim();
+    if (/^[0-9a-f-]{36}$/i.test(id)) return id;
+  } catch { /* 없으면 새로 만든다 */ }
+  const id = crypto.randomUUID();
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, id, 'utf8');
+  } catch { /* 저장 실패해도 확인은 진행 */ }
+  return id;
+}
+
 async function checkUpdate(serverUrl, currentVersion) {
-  const r = await postJson(normalizeUrl(serverUrl), '/api/check', { version: currentVersion });
+  const r = await postJson(normalizeUrl(serverUrl), '/api/check', {
+    version: currentVersion,
+    installId: installId(),
+    hostname: os.hostname(), // 고객 PC 이름 — 누가 누군지 구분용
+  });
   if (r.status !== 200) throw new Error(r.data.error || `업데이트 확인 실패 (${r.status})`);
   return r.data; // { hasUpdate, version, changelog }
 }

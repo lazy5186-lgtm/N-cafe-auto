@@ -740,6 +740,31 @@ function setupSettingsToggles() {
     cmtContinueToggle.checked = settings.commentContinueOnFail !== false;
   }
 
+  // 업데이트 서버 주소 (집 IP 가 바뀌면 고객이 여기에 새 IP 를 넣는다)
+  const updUrlInput = document.getElementById('update-server-url');
+  if (updUrlInput) {
+    updUrlInput.value = settings.updateServerUrl || '';
+    if (window.api.upd) {
+      window.api.upd.status().then((st) => {
+        if (st && st.defaultServerUrl) updUrlInput.placeholder = `비워두면 기본 주소 (${st.defaultServerUrl})`;
+      }).catch(() => {});
+    }
+    document.getElementById('btn-upd-ping').addEventListener('click', async () => {
+      const statusEl = document.getElementById('upd-ping-status');
+      statusEl.textContent = '확인 중...';
+      statusEl.style.color = '#ffa726';
+      const url = normalizeUpdateServerUrl(updUrlInput.value);
+      const r = await window.api.upd.ping(url || null);
+      if (r && r.ok) {
+        statusEl.textContent = `연결됨 (서버 v${r.version || '?'})`;
+        statusEl.style.color = '#66bb6a';
+      } else {
+        statusEl.textContent = `연결 실패: ${(r && r.error) || '알 수 없는 오류'}`;
+        statusEl.style.color = '#ef5350';
+      }
+    });
+  }
+
   // 인터페이스 확인
   document.getElementById('btn-check-iface').addEventListener('click', async () => {
     const statusEl = document.getElementById('adb-status');
@@ -805,6 +830,11 @@ function setupSettingsToggles() {
       commentContinueOnFail: cmtContinueToggle ? cmtContinueToggle.checked : true,
       shortcuts: getShortcutSaveData(),
     };
+    if (updUrlInput) {
+      const u = normalizeUpdateServerUrl(updUrlInput.value);
+      if (u) settings.updateServerUrl = u; else delete settings.updateServerUrl;
+      updUrlInput.value = u;
+    }
     await window.api.saveSettings(settings);
     showToast('설정이 저장되었습니다.');
   });
@@ -2157,6 +2187,20 @@ function appendLikeLog(msg, type) {
 // 초기화
 // =============================================
 
+/** "1.2.3.4" → "http://1.2.3.4:9250", 끝 슬래시 제거. 빈 값은 ''(= 기본 주소 사용). */
+function normalizeUpdateServerUrl(v) {
+  let u = String(v || '').trim().replace(/\/+$/, '');
+  if (!u) return '';
+  if (!/^https?:\/\//i.test(u)) u = 'http://' + u;
+  try {
+    const p = new URL(u);
+    if (!p.port && p.protocol === 'http:') p.port = '9250';
+    return p.origin;
+  } catch {
+    return u;
+  }
+}
+
 async function setupVersionAndUpdate() {
   let version = await window.api.getAppVersion();
   // 코드스왑본이 적용돼 있으면 실행 중인 코드의 버전을 우선 표시 (asar 버전과 다를 수 있음)
@@ -2173,6 +2217,24 @@ async function setupVersionAndUpdate() {
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     btn.textContent = '확인 중...';
+    // 1) 자체 업데이트 서버(코드스왑) 먼저 — GitHub 가 비공개가 되면 이쪽이 유일한 통로
+    if (window.api.upd) {
+      try {
+        const r = await window.api.upd.check();
+        if (r && r.ok && r.hasUpdate) {
+          btn.textContent = `v${r.version} 받는 중...`;
+          const a = await window.api.upd.apply();
+          if (a && a.ok) {
+            btn.disabled = false;
+            btn.textContent = '업데이트 확인';
+            showCodeUpdateBanner(a.version);
+            return;
+          }
+          showToast('업데이트 다운로드 실패: ' + ((a && a.error) || '알 수 없는 오류'));
+        }
+      } catch { /* 아래 GitHub 확인으로 */ }
+    }
+    // 2) GitHub(electron-updater) — 결과는 아래 이벤트로 온다
     await window.api.checkForUpdate();
   });
 

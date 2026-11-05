@@ -676,12 +676,25 @@ function registerHandlers(mainWindow) {
     ok: true,
     version: runningVersion(),
     serverUrl: updServerUrl(),
+    defaultServerUrl: updater.DEFAULT_SERVER_URL,
     running: updater.activeUpdateVersion(path.join(__dirname, '..', '..')) ? '코드스왑본' : '설치본',
   }));
 
   ipcMain.handle('upd:check', async () => {
     try {
-      const r = await updater.checkUpdate(updServerUrl(), runningVersion());
+      const current = runningVersion();
+      const r = await updater.checkUpdate(updServerUrl(), current);
+      // 허브는 버전이 "다르기만" 하면 hasUpdate 를 준다(문자열 비교) → 더 높을 때만 업데이트로 본다.
+      return { ok: true, ...r, hasUpdate: !!r.hasUpdate && updater.cmpVersion(r.version, current) > 0 };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // 설정 탭 "연결 테스트" — 저장 전 주소로 바로 확인한다
+  ipcMain.handle('upd:ping', async (_e, url) => {
+    try {
+      const r = await updater.ping(url || updServerUrl());
       return { ok: true, ...r };
     } catch (e) {
       return { ok: false, error: e.message };
